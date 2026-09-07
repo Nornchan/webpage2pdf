@@ -11,7 +11,7 @@ for cmd in webpage2pdf w2p
     complete -c $cmd -s d -l dir -x -a "(__fish_complete_directories)" -d "Output directory"
     complete -c $cmd -l from-list -r -F  -d "Read sources from a file, one per line"
     complete -c $cmd -l style -x -a "(__w2p_styles)" -d "Stylesheet name"
-    complete -c $cmd -l links -x -a "plain\t'Strip link styling' endnotes\t'Numbered list at the end' keep\t'Leave links live'" -d "How to treat links"
+    complete -c $cmd -l links -x -a "plain\t'Strip link styling' endnotes\t'Numbered list at the end' footnotes\t'URL at the foot of its page' keep\t'Leave links live'" -d "How to treat links"
     complete -c $cmd -l no-numbering     -d "Omit section and figure numbers"
     complete -c $cmd -l no-images        -d "Text only — smaller files"
     complete -c $cmd -l no-url           -d "Omit source URL from title block"

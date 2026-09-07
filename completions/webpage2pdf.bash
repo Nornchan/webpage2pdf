@@ -11,7 +11,7 @@ _webpage2pdf() {
 
     case "${prev}" in
         --links)
-            COMPREPLY=( $(compgen -W "plain endnotes keep" -- "${cur}") )
+            COMPREPLY=( $(compgen -W "plain endnotes footnotes keep" -- "${cur}") )
             return 0 ;;
         --style)
             # Ask the tool itself, so new stylesheets complete without edits here.

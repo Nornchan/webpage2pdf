@@ -816,7 +816,14 @@ def _handle_links(root: Tag, base_url: str, mode: str) -> list[tuple[str, str]]:
     """
     plain     — links become ordinary text (cleanest for reading on paper)
     endnotes  — superscript markers plus a numbered list at the end
+    footnotes — the URL set at the foot of the page it appears on
     keep      — links stay live and underlined
+
+    footnotes is the best of these for reading: an endnote makes you turn to
+    the back of the document and find a number, whereas a footnote is already
+    in your field of view. It relies on CSS GCPM (float: footnote), which
+    WeasyPrint implements and browsers do not — the same reason page breaks
+    behave here and not in a browser's print dialog.
     """
     endnotes: list[tuple[str, str]] = []
     seen: dict[str, int] = {}
@@ -835,6 +842,15 @@ def _handle_links(root: Tag, base_url: str, mode: str) -> list[tuple[str, str]]:
             continue
 
         if mode == "plain":
+            a.unwrap()
+        elif mode == "footnotes":
+            # The note floats to the foot of whichever page this lands on, so
+            # no numbering is needed here: the stylesheet's footnote counter
+            # numbers call and marker together.
+            note = BeautifulSoup(
+                '<span class="w2p-footnote"></span>', "html.parser").span
+            note.string = absolute
+            a.insert_after(note)
             a.unwrap()
         elif mode == "endnotes":
             if absolute in seen:

@@ -71,7 +71,7 @@ w2p --from-list links.txt -d reading/
 | `-o FILE` | Exact output path (single source only) |
 | `-d DIR` | Output folder; filenames come from article titles |
 | `--from-list FILE` | Read sources from a file, one per line, `#` for comments |
-| `--links plain\|endnotes\|keep` | Strip link styling, collect links as numbered endnotes, or keep them live |
+| `--links plain\|endnotes\|footnotes\|keep` | Strip link styling, collect links as numbered endnotes, set each URL at the foot of the page it appears on, or keep them live |
 | `--no-numbering` | Drop the automatic section and figure numbers |
 | `--no-images` | Text only — much smaller files |
 | `--no-url` / `--no-standfirst` | Trim the title block |

@@ -48,12 +48,15 @@ Stylesheet to typeset with. See
 Default:
 .BR essay .
 .TP
-.BR \-\-links " \fIplain\fR|\fIendnotes\fR|\fIkeep\fR"
+.BR \-\-links " \fIplain\fR|\fIendnotes\fR|\fIfootnotes\fR|\fIkeep\fR"
 How to treat hyperlinks.
 .B plain
 strips link styling and is cleanest on paper;
 .B endnotes
 adds superscript markers and a numbered list at the end;
+.B footnotes
+sets each URL at the foot of the page it appears on, which is easier to read
+than an endnote because the reference is already in view;
 .B keep
 leaves links live. Default:
 .BR plain .

@@ -468,6 +468,51 @@ hr {
     width: 40%;
 }
 
+/* --- Footnotes ------------------------------------------------------------
+
+   --links footnotes puts each URL at the foot of the page it appears on. This
+   is CSS Generated Content for Paged Media: browsers do not implement
+   float: footnote, WeasyPrint does. The counter, the call and the marker are
+   all wired up by the engine; we only style them.
+   -------------------------------------------------------------------------- */
+
+@page {
+    @footnote {
+        border-top: 0.5pt solid var(--rule);
+        margin-top: 3mm;
+        padding-top: 1.5mm;
+    }
+}
+
+.w2p-footnote {
+    float: footnote;
+    font-family: var(--sans);
+    font-size: 7.6pt;
+    line-height: 1.4;
+    color: var(--ink-faint);
+    text-align: left;
+    text-indent: 0;
+    word-break: break-all;   /* URLs are long and must not overflow the column */
+}
+
+::footnote-call {
+    font-family: var(--sans);
+    font-size: 6.6pt;
+    vertical-align: super;
+    line-height: 0;
+    color: var(--accent);
+    font-weight: 600;
+    padding-left: 0.15em;
+}
+
+::footnote-marker {
+    font-family: var(--sans);
+    font-size: 6.8pt;
+    color: var(--accent);
+    font-weight: 600;
+    padding-right: 0.4em;
+}
+
 /* --- Endnotes ------------------------------------------------------------- */
 
 .w2p-endnotes {

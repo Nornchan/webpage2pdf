@@ -19,6 +19,7 @@ _arguments -s -S \
   '--links[how to treat links]:mode:((
       plain\:"strip link styling — cleanest on paper"
       endnotes\:"superscript markers plus a numbered list at the end"
+      footnotes\:"each URL at the foot of the page it appears on"
       keep\:"leave links live and underlined"))' \
   '--no-numbering[omit automatic section and figure numbers]' \
   '--no-images[text only — smaller files, faster]' \

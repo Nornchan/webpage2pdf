@@ -62,9 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="read sources from a text file, one per line (# = comment)")
     p.add_argument("--style", default="essay",
                    help="stylesheet name from styles/ (default: essay)")
-    p.add_argument("--links", choices=["plain", "endnotes", "keep"], default="plain",
+    p.add_argument("--links", choices=["plain", "endnotes", "footnotes", "keep"],
+                   default="plain",
                    help="plain: strip link styling; endnotes: numbered list at the "
-                        "end; keep: live links (default: plain)")
+                        "end; footnotes: URL at the foot of the page it appears "
+                        "on; keep: live links (default: plain)")
     p.add_argument("--no-numbering", action="store_true",
                    help="omit automatic section and figure numbers")
     p.add_argument("--no-images", action="store_true",
