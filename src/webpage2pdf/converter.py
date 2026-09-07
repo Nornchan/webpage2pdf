@@ -11,16 +11,15 @@ import html as html_lib
 import os
 import re
 import shutil
-import sys
 import tempfile
 import urllib.parse
 from dataclasses import dataclass
 from datetime import date
 
 # Must run before weasyprint is imported: it fixes the macOS library search path
-# and may re-exec the process to do so.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _bootstrap  # noqa: E402
+# and may re-exec the process to do so. Installed via Homebrew this is a no-op,
+# because the formula links the native libraries where dyld already looks.
+from . import _bootstrap  # noqa: E402
 
 _bootstrap.ensure_native_libs()
 
@@ -30,11 +29,11 @@ except OSError as exc:  # native libraries missing or unreachable
     raise SystemExit(
         f"\nWeasyPrint could not load its native libraries.\n  {exc}\n\n"
         "Run this for a diagnosis and the exact fix:\n"
-        "    python3 html2pdf.py --doctor\n"
+        "    webpage2pdf --doctor\n"
     ) from exc
 
-import extractor  # noqa: E402
-from extractor import Article  # noqa: E402
+from . import extractor  # noqa: E402
+from .extractor import Article  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STYLE_DIR = os.path.join(HERE, "styles")

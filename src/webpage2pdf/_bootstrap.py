@@ -76,12 +76,43 @@ def ensure_native_libs() -> None:
     os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join(dict.fromkeys(merged))
 
     # Re-exec so dyld picks the variable up at start-up.
-    if not sys.argv or not sys.argv[0] or not os.path.isfile(sys.argv[0]):
+    argv = _reexec_argv()
+    if argv is None:
         return  # a REPL or -c invocation; don't hijack it
     try:
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        os.execv(sys.executable, argv)
     except OSError:
         pass  # fall through and let the import raise a real error
+
+
+def _reexec_argv() -> list[str] | None:
+    """
+    Rebuild the command line that started us, preserving its *form*.
+
+    This is subtler than `[sys.executable] + sys.argv`. Under `python -m pkg`,
+    runpy rewrites sys.argv[0] to the path of the package's __main__.py, so
+    naively re-execing sys.argv runs that file as a plain script — which drops
+    __package__ and makes every relative import inside the package fail with
+
+        ImportError: attempted relative import with no known parent package
+
+    sys.modules["__main__"].__spec__ is set only for the -m form, and its
+    `parent` names the package, so we can detect the case and re-exec as -m.
+
+    Returns None when there is nothing sensible to re-exec (a REPL, `-c`, or a
+    stdin script), in which case the caller leaves the process alone.
+    """
+    spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+    if spec is not None:
+        # Launched as `python -m <parent>`; keep it that way.
+        module = spec.parent or spec.name
+        if module:
+            return [sys.executable, "-m", module, *sys.argv[1:]]
+
+    if sys.argv and sys.argv[0] and os.path.isfile(sys.argv[0]):
+        return [sys.executable, *sys.argv]
+
+    return None
 
 
 def diagnose() -> int:

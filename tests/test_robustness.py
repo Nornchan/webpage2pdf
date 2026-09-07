@@ -13,9 +13,14 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(HERE))
 
-import converter  # noqa: E402
+# Prefer an installed webpage2pdf; fall back to the source tree so the suite
+# runs in a fresh checkout before `pip install`.
+try:
+    from webpage2pdf import converter, extractor
+except ImportError:
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "src"))
+    from webpage2pdf import converter, extractor  # noqa: E402
 
 CASES: list[tuple[str, str]] = [
     ("unclosed tags", """
@@ -146,7 +151,7 @@ def run() -> int:
                 + "</article></body></html>")
         with open(path, "wb") as fh:
             fh.write(body.encode("gb18030"))
-        html_text, _ = __import__("extractor").read_local(path)
+        html_text, _ = extractor.read_local(path)
         if "中文标题" in html_text:
             passed += 1
             print(f"  PASS  {'gb18030 encoding':32} decoded correctly")

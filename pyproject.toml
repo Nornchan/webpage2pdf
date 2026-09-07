@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "webpage2pdf"
+version = "0.1.0"
+description = "Turn web pages into clean A4 PDFs that read like typeset essays."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "norachan" }]
+keywords = ["pdf", "typography", "readability", "weasyprint", "print", "reading"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Printing",
+    "Topic :: Text Processing :: Markup :: HTML",
+]
+
+dependencies = [
+    "weasyprint>=62.0",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "Pillow>=10.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/norachan/webpage2pdf"
+Source = "https://github.com/norachan/webpage2pdf"
+Issues = "https://github.com/norachan/webpage2pdf/issues"
+
+# `webpage2pdf` is the canonical name; `w2p` is the one you actually type.
+# Deliberately not `html2pdf` — that name collides with several existing tools
+# and would be rejected by homebrew-core.
+[project.scripts]
+webpage2pdf = "webpage2pdf.cli:main"
+w2p = "webpage2pdf.cli:main"
+webpage2pdf-server = "webpage2pdf.server:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Stylesheets are data, not code, but they must travel with the package —
+# `--style` resolves against the installed styles/ directory.
+[tool.setuptools.package-data]
+webpage2pdf = ["styles/*.css"]

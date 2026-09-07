@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-server.py — local drag-and-drop front end for html2pdf.
+server.py — local drag-and-drop front end for webpage2pdf.
 
-    python3 server.py
+    webpage2pdf-server
 
 Opens http://127.0.0.1:8765 in your browser. Nothing leaves your machine except
 the page fetches themselves. Standard library only, so there is no web framework
@@ -22,12 +22,19 @@ import threading
 import urllib.parse
 import webbrowser
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-import converter  # noqa: E402
+from . import __version__
+from . import converter
 
 DEFAULT_PORT = 8765
-OUTPUT_DIR = os.path.abspath("converted-pdfs")
+
+# Resolved once at start-up from an explicit default, never from the working
+# directory. The old `os.path.abspath("converted-pdfs")` was evaluated at import
+# time, so PDFs landed wherever the server happened to be launched from — which
+# meant "your files are in converted-pdfs/" was true but useless advice.
+DEFAULT_OUTPUT_DIR = os.path.join(
+    os.path.expanduser("~"), "Documents", "webpage2pdf"
+)
+OUTPUT_DIR = DEFAULT_OUTPUT_DIR
 
 
 # ==========================================================================
@@ -433,10 +440,16 @@ class ThreadedServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 def main() -> int:
     global OUTPUT_DIR
 
-    parser = argparse.ArgumentParser(description="Local web front end for html2pdf.")
+    parser = argparse.ArgumentParser(
+        prog="webpage2pdf-server",
+        description="Local drag-and-drop web front end for webpage2pdf.",
+    )
+    parser.add_argument("-V", "--version", action="version",
+                        version=f"webpage2pdf {__version__}")
     parser.add_argument("-p", "--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("-o", "--output", default=OUTPUT_DIR,
-                        help="where finished PDFs are saved")
+    parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT_DIR,
+                        help=f"where finished PDFs are saved "
+                             f"(default: {DEFAULT_OUTPUT_DIR})")
     parser.add_argument("--no-browser", action="store_true",
                         help="don't open a browser window on start")
     args = parser.parse_args()
@@ -450,7 +463,7 @@ def main() -> int:
         server = ThreadedServer(("127.0.0.1", args.port), Handler)
     except OSError as exc:
         print(f"Could not start on port {args.port}: {exc}\n"
-              f"Try:  python3 server.py --port {args.port + 1}", file=sys.stderr)
+              f"Try:  webpage2pdf-server --port {args.port + 1}", file=sys.stderr)
         return 1
 
     print(f"\n  Webpage → A4 PDF")

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-html2pdf.py — turn web pages into clean A4 PDFs.
+cli.py — turn web pages into clean A4 PDFs from the command line.
 
-    python3 html2pdf.py https://example.com/article
-    python3 html2pdf.py saved-page.html -o reading/week-03.pdf
-    python3 html2pdf.py url1 url2 file.html -d reading/
-    python3 html2pdf.py --from-list links.txt -d reading/
+    webpage2pdf https://example.com/article
+    webpage2pdf saved-page.html -o reading/week-03.pdf
+    webpage2pdf url1 url2 file.html -d reading/
+    webpage2pdf --from-list links.txt -d reading/
 
-Run `python3 html2pdf.py --help` for all options.
+Run `webpage2pdf --help` for all options.
 """
 
 from __future__ import annotations
@@ -16,16 +16,17 @@ import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from . import __version__
 
-# --doctor has to work even when the PDF engine can't load, so it is handled
-# before `converter` (and therefore weasyprint) is imported.
+# --doctor has to work even when the PDF engine cannot load — that is the whole
+# point of it — so it is handled before `converter` (and therefore weasyprint)
+# is imported. Same for --version, which should never depend on native libraries.
 if "--doctor" in sys.argv:
-    import _bootstrap
+    from . import _bootstrap
     _bootstrap.ensure_native_libs()
     sys.exit(_bootstrap.diagnose())
 
-import converter  # noqa: E402
+from . import converter  # noqa: E402
 
 
 GREEN, YELLOW, RED, DIM, BOLD, OFF = (
@@ -36,17 +37,21 @@ GREEN, YELLOW, RED, DIM, BOLD, OFF = (
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="html2pdf",
+        prog="webpage2pdf",
         description="Convert web pages or saved HTML files into tidy A4 PDFs.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""examples:
-  html2pdf.py https://aeon.co/essays/some-essay
-  html2pdf.py article.html -o out/week-03.pdf
-  html2pdf.py a.html b.html https://example.com/c -d reading/
-  html2pdf.py --from-list weekly-links.txt -d reading/ --links endnotes
-  html2pdf.py https://example.com/piece --no-numbering --no-images
+  webpage2pdf https://aeon.co/essays/some-essay
+  webpage2pdf article.html -o out/week-03.pdf
+  webpage2pdf a.html b.html https://example.com/c -d reading/
+  webpage2pdf --from-list weekly-links.txt -d reading/ --links endnotes
+  webpage2pdf https://example.com/piece --no-numbering --no-images
+
+`w2p` is installed as a shorter alias for the same command.
 """,
     )
+    p.add_argument("-V", "--version", action="version",
+                   version=f"webpage2pdf {__version__}")
     p.add_argument("sources", nargs="*",
                    help="URLs and/or paths to saved .html files")
     p.add_argument("-o", "--output", metavar="FILE",
