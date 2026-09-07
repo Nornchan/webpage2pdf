@@ -585,6 +585,26 @@ def _remap_headings(root: Tag, title: str) -> None:
             h.decompose()
 
 
+def _tag_lead_paragraph(root: Tag) -> None:
+    """
+    Mark the article's opening paragraph so the stylesheet can set it apart.
+
+    Must run after _strip_attrs, which removes every class on the page — this is
+    the one class we add ourselves, so it has to be added last.
+
+    Only a genuine opening paragraph qualifies: the first <p> in the document,
+    with enough text to be prose rather than a dateline or a byline fragment,
+    and not sitting inside a figure, quotation or list.
+    """
+    for node in root.find_all("p"):
+        if node.find_parent(["blockquote", "figure", "li", "table"]):
+            continue
+        if len(node.get_text(strip=True)) < 80:
+            continue          # a stub, a dateline, or "Photograph by ..."
+        node["class"] = ["w2p-lead"]
+        return
+
+
 def _wrap_tables(root: Tag) -> None:
     for table in root.find_all("table"):
         for nested in table.find_all(["div", "section", "span"]):
@@ -987,6 +1007,7 @@ def extract(html: str, base_url: str, asset_dir: str, *,
     _promote_text_blocks(root)
     _drop_empty(root)
     _strip_attrs(root)
+    _tag_lead_paragraph(root)   # after _strip_attrs: it is the one class we add
 
     art.body_html = root.decode_contents()
     art.word_count = len(root.get_text(" ", strip=True).split())

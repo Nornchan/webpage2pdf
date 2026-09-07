@@ -18,17 +18,23 @@
 
     @top-center {
         content: string(doctitle);
-        font-family: var(--sans);
-        font-size: 8pt;
-        font-style: italic;
+        font-family: var(--serif);
+        font-size: 8.5pt;
+        /* Small caps rather than italic: a running head should be quiet
+           furniture, and caps need tracking to stop them setting too tight. */
+        font-variant-caps: small-caps;
+        letter-spacing: 0.06em;
         color: #8a8a8a;
         margin-bottom: 5mm;
     }
 
     @bottom-center {
         content: counter(page) " of " counter(pages);
-        font-family: var(--sans);
+        font-family: var(--serif);
         font-size: 8.5pt;
+        /* Tabular lining figures: the folio must not shift position as the
+           page number gains a digit. */
+        font-variant-numeric: lining-nums tabular-nums;
         color: #8a8a8a;
         margin-top: 5mm;
     }
@@ -39,10 +45,54 @@
     @top-center { content: none; }
 }
 
+/* --- Bundled text face ----------------------------------------------------
+
+   Literata, instantiated from the variable font at opsz 11 to match the 11pt
+   body size below, and shipped with the package. Bundling it is what makes
+   output deterministic: without it the stack fell through to whatever the
+   machine happened to have, so the same URL produced a different document on
+   a Mac (Charter) and on Linux (DejaVu Serif).
+
+   Paths are relative to this file. WeasyPrint resolves them against the
+   stylesheet's own location, and converter.py passes one FontConfiguration to
+   both the CSS and the render — without that these rules parse and are then
+   silently discarded, falling back with no warning at all.
+
+   SIL Open Font License 1.1; see fonts/OFL.txt.
+   -------------------------------------------------------------------------- */
+
+@font-face {
+    font-family: "Literata";
+    font-weight: 400;
+    font-style: normal;
+    src: url("fonts/Literata-Regular.ttf") format("truetype");
+}
+
+@font-face {
+    font-family: "Literata";
+    font-weight: 600;
+    font-style: normal;
+    src: url("fonts/Literata-Semibold.ttf") format("truetype");
+}
+
+@font-face {
+    font-family: "Literata";
+    font-weight: 400;
+    font-style: italic;
+    src: url("fonts/Literata-Italic.ttf") format("truetype");
+}
+
+@font-face {
+    font-family: "Literata";
+    font-weight: 600;
+    font-style: italic;
+    src: url("fonts/Literata-SemiboldItalic.ttf") format("truetype");
+}
+
 :root {
-    --serif: "Charter", "Bitstream Charter", "Georgia", "Palatino Linotype",
-             "Book Antiqua", "STIX Two Text", "Source Serif Pro",
-             "DejaVu Serif", "Liberation Serif", "Times New Roman", serif;
+    /* The fallbacks matter only if the bundled files are missing. */
+    --serif: "Literata", "Charter", "Georgia", "Palatino Linotype",
+             "STIX Two Text", "DejaVu Serif", "Times New Roman", serif;
     --sans:  "Helvetica Neue", "Inter", "Segoe UI", "Roboto",
              "DejaVu Sans", "Liberation Sans", Arial, sans-serif;
     --mono:  "SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono", monospace;
@@ -62,10 +112,27 @@ html {
     font-size: 11pt;
     line-height: 1.62;
     color: var(--ink);
-    /* Hyphenation keeps justified text from opening rivers of whitespace. */
+
+    /* Hyphenation keeps justified text from opening rivers of whitespace.
+       The dictionary is chosen from the <html lang> attribute, which the
+       extractor reads from the source page — see extractor._extract_lang.
+       hyphenate-limit-chars keeps 6-letter words whole and never leaves fewer
+       than 3 letters on either side of a break; hyphenate-limit-zone tells the
+       engine to accept a ragged edge up to 3em rather than reach for a hyphen,
+       which is what stops long runs of hyphenated line ends. */
     hyphens: auto;
     -weasy-hyphens: auto;
     hyphenate-limit-chars: 6 3 3;
+    hyphenate-limit-zone: 3em;
+
+    /* OpenType. Old-style figures sit on the baseline with ascenders and
+       descenders, so a date inside a sentence reads as a word rather than
+       shouting like a lining figure would. Proportional spacing suits running
+       text; tables switch to tabular lining figures below, where columns of
+       digits have to align. */
+    font-kerning: normal;
+    font-variant-ligatures: common-ligatures contextual;
+    font-variant-numeric: oldstyle-nums proportional-nums;
 }
 
 body {
@@ -88,9 +155,28 @@ p + p {
 }
 
 h2 + p, h3 + p, h4 + p,
-figure + p, blockquote + p, ul + p, ol + p, pre + p {
+figure + p, blockquote + p, ul + p, ol + p, pre + p,
+.w2p-lead + p {
     text-indent: 0;
     margin-top: 0.85em;
+}
+
+/* --- The opening paragraph ------------------------------------------------
+
+   A book opens its first paragraph differently from the ones that follow: no
+   indent (there is nothing above it to be indented from), and the first line
+   in small caps to carry the eye from the title block into the prose. The
+   extractor tags this paragraph — see extractor._tag_lead_paragraph.
+   -------------------------------------------------------------------------- */
+
+p.w2p-lead {
+    text-indent: 0;
+    margin-top: 0;
+}
+
+p.w2p-lead::first-line {
+    font-variant-caps: small-caps;
+    letter-spacing: 0.03em;
 }
 
 /* --- Title block ---------------------------------------------------------- */
@@ -297,6 +383,9 @@ table {
     font-family: var(--sans);
     font-size: 8.8pt;
     line-height: 1.4;
+    /* Override the body's old-style proportional figures: a column of numbers
+       must align on the decimal point and share one advance width. */
+    font-variant-numeric: lining-nums tabular-nums;
 }
 
 thead {

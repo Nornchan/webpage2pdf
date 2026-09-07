@@ -52,4 +52,7 @@ where = ["src"]
 # Stylesheets are data, not code, but they must travel with the package —
 # `--style` resolves against the installed styles/ directory.
 [tool.setuptools.package-data]
-webpage2pdf = ["styles/*.css"]
+# Stylesheets and the bundled text face travel with the package. Without the
+# fonts entry the CSS installs but its @font-face targets do not, and output
+# silently falls back to a system font.
+webpage2pdf = ["styles/*.css", "styles/fonts/*.ttf", "styles/fonts/OFL.txt"]
