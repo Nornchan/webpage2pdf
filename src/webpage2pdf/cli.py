@@ -67,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="plain: strip link styling; endnotes: numbered list at the "
                         "end; footnotes: URL at the foot of the page it appears "
                         "on; keep: live links (default: plain)")
+    toc_group = p.add_mutually_exclusive_group()
+    toc_group.add_argument("--toc", dest="toc", action="store_true", default=None,
+                           help="add a contents list with page numbers")
+    toc_group.add_argument("--no-toc", dest="toc", action="store_false",
+                           help="never add a contents list")
     p.add_argument("--no-numbering", action="store_true",
                    help="omit automatic section and figure numbers")
     p.add_argument("--no-images", action="store_true",
@@ -140,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
                 show_url=not args.no_url,
                 standfirst=not args.no_standfirst,
                 images=not args.no_images,
+                toc=args.toc,
                 keep_html=args.keep_html,
                 timeout=args.timeout,
             )

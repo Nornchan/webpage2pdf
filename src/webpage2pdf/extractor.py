@@ -143,6 +143,7 @@ class Article:
     word_count: int = 0
     images: int = 0
     endnotes: list[tuple[str, str]] = field(default_factory=list)
+    sections: list[tuple[int, str, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -585,6 +586,30 @@ def _remap_headings(root: Tag, title: str) -> None:
             h.decompose()
 
 
+def _add_heading_ids(root: Tag) -> list[tuple[int, str, str]]:
+    """
+    Give every section heading a stable id and return the table of contents.
+
+    Runs after _strip_attrs, which removes the site's own ids along with
+    everything else — ids from the source page are not worth keeping anyway,
+    since they are frequently duplicated or generated per-request.
+
+    The returned triples are (level, id, text). converter turns them into a
+    contents list whose page numbers come from CSS target-counter(), so they
+    are resolved after layout and stay correct no matter how many pages the
+    contents list itself occupies.
+    """
+    sections: list[tuple[int, str, str]] = []
+    for index, node in enumerate(root.find_all(["h2", "h3"]), start=1):
+        text = node.get_text(" ", strip=True)
+        if not text:
+            continue
+        anchor = f"w2p-sec-{index}"
+        node["id"] = anchor
+        sections.append((int(node.name[1]), anchor, text))
+    return sections
+
+
 def _tag_lead_paragraph(root: Tag) -> None:
     """
     Mark the article's opening paragraph so the stylesheet can set it apart.
@@ -1023,7 +1048,9 @@ def extract(html: str, base_url: str, asset_dir: str, *,
     _promote_text_blocks(root)
     _drop_empty(root)
     _strip_attrs(root)
-    _tag_lead_paragraph(root)   # after _strip_attrs: it is the one class we add
+    # Both of these add attributes back, so they must follow _strip_attrs.
+    art.sections = _add_heading_ids(root)
+    _tag_lead_paragraph(root)
 
     art.body_html = root.decode_contents()
     art.word_count = len(root.get_text(" ", strip=True).split())

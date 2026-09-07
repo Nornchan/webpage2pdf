@@ -80,8 +80,48 @@ def _esc(text: str) -> str:
     return html_lib.escape(text or "", quote=True)
 
 
+# A contents list earns its place once a document is long enough that you would
+# otherwise scroll to find a section. Both conditions must hold: a 900-word piece
+# with five subheadings does not need one, and neither does a 4000-word essay
+# written as continuous prose.
+TOC_MIN_SECTIONS = 4
+TOC_MIN_WORDS = 1500
+
+
+def _wants_toc(art: Article, toc: bool | None) -> bool:
+    """`toc` is True/False to force, or None to decide from the document."""
+    if toc is not None:
+        return toc
+    top_level = sum(1 for level, _, _ in art.sections if level == 2)
+    return top_level >= TOC_MIN_SECTIONS and art.word_count >= TOC_MIN_WORDS
+
+
+def _build_toc(art: Article) -> str:
+    """
+    A contents list with real page numbers.
+
+    The page numbers are not computed here. Each entry carries a link to its
+    heading and the stylesheet fills in the number with
+    target-counter(attr(href), page), which CSS resolves after layout. That
+    matters because inserting this list shifts every page number in the
+    document — including its own — so anything computed in advance would be
+    wrong by exactly the length of the contents list.
+    """
+    if not art.sections:
+        return ""
+    items = "\n".join(
+        f'<li class="w2p-toc-l{level}"><a href="#{anchor}">{_esc(text)}</a></li>'
+        for level, anchor, text in art.sections
+    )
+    return (
+        '<nav class="w2p-toc">'
+        '<h2 class="w2p-toc-head">Contents</h2>'
+        f"<ol>{items}</ol></nav>"
+    )
+
+
 def _build_document(art: Article, *, numbered: bool, show_url: bool,
-                    standfirst: bool) -> str:
+                    standfirst: bool, toc: bool = False) -> str:
     """Wrap the cleaned body in the title block, endnotes and colophon."""
 
     meta_bits = []
@@ -123,6 +163,7 @@ def _build_document(art: Article, *, numbered: bool, show_url: bool,
     )
 
     body_class = "w2p-numbered" if numbered else ""
+    toc_html = _build_toc(art) if toc else ""
 
     # WeasyPrint maps these straight onto PDF document metadata: author, subject,
     # keywords and creation date. Without them the PDF lands in a library or a
@@ -151,6 +192,7 @@ def _build_document(art: Article, *, numbered: bool, show_url: bool,
   <div class="w2p-meta">{meta_line}{url_line}</div>
   {stand}
 </header>
+{toc_html}
 <main>
 {art.body_html}
 </main>
@@ -167,12 +209,15 @@ def convert(source: str, output_path: str, *,
             show_url: bool = True,
             standfirst: bool = True,
             images: bool = True,
+            toc: bool | None = None,
             keep_html: str | None = None,
             timeout: int = 30) -> Result:
     """
     Convert a URL or local .html file into an A4 PDF.
 
     `source` may be an http(s) URL or a filesystem path.
+    `toc` is True/False to force a contents list, or None to decide from the
+    document's length and section count.
     Returns a Result describing what was produced.
     """
     asset_dir = tempfile.mkdtemp(prefix="w2p-assets-")
@@ -194,7 +239,8 @@ def convert(source: str, output_path: str, *,
         )
 
         document_html = _build_document(
-            art, numbered=numbered, show_url=show_url, standfirst=standfirst
+            art, numbered=numbered, show_url=show_url, standfirst=standfirst,
+            toc=_wants_toc(art, toc),
         )
 
         if keep_html:

@@ -16,7 +16,10 @@
     size: A4;                       /* 210 x 297 mm */
     margin: 25mm 25mm 22mm 25mm;    /* text block: 160mm wide, ~250mm tall */
 
-    @top-center {
+    /* Running heads, book convention: the work on the left, where you are in
+       it on the right. Repeating the title on both sides tells you nothing you
+       did not already know; the section name tells you where you are. */
+    @top-left {
         content: string(doctitle);
         font-family: var(--serif);
         font-size: 8.5pt;
@@ -25,6 +28,21 @@
         font-variant-caps: small-caps;
         letter-spacing: 0.06em;
         color: #8a8a8a;
+        margin-bottom: 5mm;
+    }
+
+    @top-right {
+        /* `first` resolves to the first section that *begins* on this page,
+           falling back to the one carried over when none does. So a page where
+           a new section opens is labelled with the new one — which is what you
+           want when flipping through looking for where a section starts. Use
+           `start` instead if you would rather the head always name the section
+           in force at the top of the page. */
+        content: string(sectitle, first);
+        font-family: var(--serif);
+        font-size: 8.5pt;
+        font-style: italic;
+        color: #a8a8a8;
         margin-bottom: 5mm;
     }
 
@@ -42,7 +60,8 @@
 
 /* Page 1 carries the title block, so it needs no running header. */
 @page :first {
-    @top-center { content: none; }
+    @top-left { content: none; }
+    @top-right { content: none; }
 }
 
 /* --- Bundled text face ----------------------------------------------------
@@ -232,6 +251,81 @@ h1 {
     text-indent: 0;
 }
 
+/* --- Contents -------------------------------------------------------------
+
+   Page numbers come from target-counter(attr(href), page), which CSS resolves
+   after layout. Nothing here needs to know how long the document is, or how
+   many pages this list itself occupies — which is the trap in computing a
+   contents list ahead of time, since inserting it shifts every number in it.
+
+   leader(".") fills the space between title and folio with dots that stretch
+   to the measure. Both are CSS Generated Content for Paged Media, which
+   WeasyPrint implements and browsers do not.
+   -------------------------------------------------------------------------- */
+
+.w2p-toc {
+    margin: 0 0 12mm 0;
+    padding-bottom: 6mm;
+    border-bottom: 0.6pt solid var(--rule);
+    /* Keep the list whole where it reasonably can be. */
+    break-inside: auto;
+}
+
+.w2p-toc-head {
+    font-family: var(--serif);
+    font-size: 10pt;
+    font-weight: 600;
+    font-variant-caps: small-caps;
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+    border: none;
+    margin: 0 0 3mm 0;
+    padding: 0;
+    counter-increment: none;
+    /* Never list the contents list in the contents list, or in the PDF
+       bookmark tree where it would duplicate the sidebar's own function. */
+    bookmark-level: none;
+}
+
+body.w2p-numbered .w2p-toc-head::before { content: none; }
+
+.w2p-toc ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 10pt;
+    line-height: 1.5;
+}
+
+.w2p-toc li {
+    margin: 0 0 0.9mm 0;
+    text-align: left;
+    break-inside: avoid;
+}
+
+.w2p-toc a {
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: none;
+}
+
+/* The dots and the page number. Tabular lining figures so the folio column
+   stays flush regardless of digit widths. */
+.w2p-toc a::after {
+    content: leader(".") target-counter(attr(href), page);
+    color: var(--ink-faint);
+    font-variant-numeric: lining-nums tabular-nums;
+    padding-left: 0.4em;
+}
+
+.w2p-toc-l3 {
+    padding-left: 6mm;
+    font-size: 9.4pt;
+    color: var(--ink-soft);
+}
+
+.w2p-toc-l3 a { color: var(--ink-soft); }
+
 /* --- Headings ------------------------------------------------------------- */
 
 h2, h3, h4 {
@@ -245,6 +339,8 @@ h2, h3, h4 {
 }
 
 h2 {
+    /* Publishes the current section name to the running head. */
+    string-set: sectitle content(text);
     font-size: 14pt;
     font-weight: 600;
     margin: 9mm 0 3mm 0;
@@ -259,6 +355,9 @@ h3 {
     font-weight: 600;
     margin: 6.5mm 0 2mm 0;
     counter-increment: sub;
+    /* The PDF sidebar opens showing sections, not every subsection under
+       them; a long explainer otherwise greets you with forty entries. */
+    bookmark-state: closed;
 }
 
 h4 {
@@ -523,6 +622,7 @@ hr {
 }
 
 .w2p-endnotes h2 {
+    string-set: sectitle content(text);
     font-size: 11pt;
     border: none;
     margin: 0 0 3mm 0;
