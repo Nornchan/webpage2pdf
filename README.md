@@ -10,11 +10,16 @@ Saving a page from your browser keeps the site's screen layout and hands the pag
 
 ## Setup
 
-**With Homebrew** (once the tap is published — see `packaging/RELEASE.md`):
+**With Homebrew:**
 
 ```bash
-brew install <you>/tap/webpage2pdf
+brew install Nornchan/tap/webpage2pdf
 ```
+
+That puts three commands on your `PATH`: `webpage2pdf`, the shorter alias
+`w2p`, and `webpage2pdf-server` (a local drag-and-drop web app). It taps
+[`Nornchan/homebrew-tap`](https://github.com/Nornchan/homebrew-tap)
+automatically — no separate `brew tap` needed first.
 
 This is the path worth preferring. Homebrew builds the virtualenv from its own
 Python with `pango` as a declared dependency, so the library is guaranteed
