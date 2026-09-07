@@ -8,11 +8,17 @@ _webpage2pdf() {
     opts="-h --help -V --version -o --output -d --dir --from-list --style
           --preset --links --toc --no-toc --no-numbering --no-images --no-url
           --no-standfirst --keep-html --timeout --list-styles --list-presets
-          --open --doctor -q --quiet"
+          --open --doctor -q --quiet -p --profile -f --format --list-profiles"
 
     case "${prev}" in
         --links)
             COMPREPLY=( $(compgen -W "plain endnotes footnotes keep" -- "${cur}") )
+            return 0 ;;
+        -p|--profile)
+            COMPREPLY=( $(compgen -W "$(webpage2pdf --list-profiles 2>/dev/null | cut -d" " -f1)" -- "${cur}") )
+            return 0 ;;
+        -f|--format)
+            COMPREPLY=( $(compgen -W "pdf html epub md" -- "${cur}") )
             return 0 ;;
         --preset)
             COMPREPLY=( $(compgen -W "$(webpage2pdf --list-presets 2>/dev/null | cut -d" " -f1)" -- "${cur}") )

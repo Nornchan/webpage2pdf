@@ -206,6 +206,17 @@ class Webpage2pdf < Formula
     assert_match version.to_s, shell_output("#{bin}/w2p --version")
     assert_match "essay", shell_output("#{bin}/webpage2pdf --list-styles")
     assert_match "remarkable", shell_output("#{bin}/webpage2pdf --list-presets")
+    assert_match "booklet", shell_output("#{bin}/webpage2pdf --list-profiles")
+
+    # Every output format must produce a file of the right shape.
+    system bin/"webpage2pdf", testpath/"article.html", "-o", testpath/"a.epub", "--quiet"
+    assert_equal "PK", (testpath/"a.epub").read(2)
+
+    system bin/"webpage2pdf", testpath/"article.html", "-o", testpath/"a.md", "--quiet"
+    assert_match "title:", (testpath/"a.md").read
+
+    system bin/"webpage2pdf", testpath/"article.html", "-o", testpath/"a.html", "--quiet"
+    assert_match "<!DOCTYPE html>", (testpath/"a.html").read
 
     # A preset must change the page geometry, not just be accepted.
     system bin/"webpage2pdf", testpath/"article.html",

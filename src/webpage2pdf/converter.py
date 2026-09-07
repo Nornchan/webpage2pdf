@@ -36,6 +36,7 @@ except OSError as exc:  # native libraries missing or unreachable
 
 from . import extractor  # noqa: E402
 from . import presets  # noqa: E402
+from . import writers  # noqa: E402
 from .extractor import Article  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,12 +52,17 @@ TEXT_HEIGHT_MM = presets.get(presets.DEFAULT_PRESET).text_height_mm   # 195.0
 
 @dataclass
 class Result:
-    pdf_path: str
+    output_path: str
     title: str
     word_count: int
     images: int
-    pages: int
+    pages: int          # 0 for reflowable formats, which have no pages
     warnings: list[str]
+
+    @property
+    def pdf_path(self) -> str:
+        """Kept so existing callers keep working now that PDF is one of four."""
+        return self.output_path
 
 
 def _esc(text: str) -> str:
@@ -194,6 +200,7 @@ def convert(source: str, output_path: str, *,
             images: bool = True,
             toc: bool | None = None,
             preset: str = presets.DEFAULT_PRESET,
+            fmt: str = "pdf",
             keep_html: str | None = None,
             timeout: int = 30) -> Result:
     """
@@ -203,6 +210,8 @@ def convert(source: str, output_path: str, *,
     `toc` is True/False to force a contents list, or None to decide from the
     document's length and section count.
     `preset` names a page geometry from presets.PRESETS.
+    `fmt` is one of writers.FORMATS: pdf, html, epub or md. Only pdf uses the
+    page geometry; the others reflow.
     Returns a Result describing what was produced.
     """
     asset_dir = tempfile.mkdtemp(prefix="w2p-assets-")
@@ -247,6 +256,26 @@ def convert(source: str, output_path: str, *,
 
         os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
 
+        # Non-PDF formats reflow, so page geometry does not apply to them and
+        # WeasyPrint is never involved. They share everything up to this point:
+        # the fetch, the extraction, and the assembled document.
+        if fmt == "md":
+            writers.write_markdown(art, output_path)
+            return _result(art, output_path, pages=0)
+
+        if fmt == "epub":
+            writers.write_epub(art, output_path)
+            return _result(art, output_path, pages=0)
+
+        if fmt == "html":
+            with open(css_path, encoding="utf-8") as fh:
+                base_css = fh.read()
+            writers.write_html(
+                art, document_html, base_css + "\n" + page.css(),
+                output_path, style_dir=STYLE_DIR,
+            )
+            return _result(art, output_path, pages=0)
+
         # One FontConfiguration, shared by the stylesheet and the render.
         #
         # This is not optional bookkeeping. @font-face rules are collected into
@@ -270,19 +299,12 @@ def convert(source: str, output_path: str, *,
         )
         doc.write_pdf(output_path)
 
-        return Result(
-            pdf_path=os.path.abspath(output_path),
-            title=art.title,
-            word_count=art.word_count,
-            images=art.images,
-            pages=len(doc.pages),
-            warnings=art.warnings,
-        )
+        return _result(art, output_path, pages=len(doc.pages))
     finally:
         shutil.rmtree(asset_dir, ignore_errors=True)
 
 
-def staging_path(directory: str) -> str:
+def staging_path(directory: str, fmt: str = "pdf") -> str:
     """
     A scratch path to render into before the article title is known.
 
@@ -292,7 +314,7 @@ def staging_path(directory: str) -> str:
     overwrites another's half-written file.
     """
     return os.path.join(
-        directory, f".w2p-staging-{os.getpid()}-{threading.get_ident():x}.pdf"
+        directory, f".w2p-staging-{os.getpid()}-{threading.get_ident():x}.{fmt}"
     )
 
 
@@ -324,12 +346,62 @@ def claim_output_path(preferred: str) -> str:
     raise FileExistsError(f"Could not find a free filename near {preferred}")
 
 
-def suggest_filename(title: str, fallback: str = "document") -> str:
+def finalize_output(staging: str, final: str) -> None:
+    """
+    Move a staged output into place, bringing any sidecar folder with it.
+
+    Markdown writes its images to `<stem>_files/` beside the document. In batch
+    mode the document is written to a staging name first, because the filename
+    is derived from the article title and the title is not known until after
+    extraction — so without this the sidecar keeps the staging name and the
+    document points at `.w2p-staging-17564-1fb322180_files/`. That resolves by
+    luck and leaks a process id into a file you might commit.
+    """
+    staging_stem = os.path.splitext(staging)[0]
+    final_stem = os.path.splitext(final)[0]
+
+    os.replace(staging, final)
+
+    sidecar = f"{staging_stem}_files"
+    if not os.path.isdir(sidecar):
+        return
+
+    wanted = f"{final_stem}_files"
+    if os.path.abspath(sidecar) != os.path.abspath(wanted):
+        shutil.rmtree(wanted, ignore_errors=True)
+        os.replace(sidecar, wanted)
+
+    # Repoint the references, which were written against the staging name.
+    if final.endswith(".md"):
+        try:
+            with open(final, encoding="utf-8") as fh:
+                text = fh.read()
+            text = text.replace(f"{os.path.basename(sidecar)}/",
+                                f"{os.path.basename(wanted)}/")
+            with open(final, "w", encoding="utf-8") as fh:
+                fh.write(text)
+        except OSError:
+            pass
+
+
+def _result(art: Article, output_path: str, *, pages: int) -> Result:
+    return Result(
+        output_path=os.path.abspath(output_path),
+        title=art.title,
+        word_count=art.word_count,
+        images=art.images,
+        pages=pages,
+        warnings=art.warnings,
+    )
+
+
+def suggest_filename(title: str, fallback: str = "document",
+                     fmt: str = "pdf") -> str:
     """A tidy, filesystem-safe name derived from the article title."""
     name = re.sub(r"[^\w\s-]", "", title, flags=re.UNICODE).strip()
     name = re.sub(r"[\s_]+", "-", name)
     name = name[:70].strip("-")
-    return (name or fallback) + ".pdf"
+    return (name or fallback) + "." + fmt
 
 
 def available_styles() -> list[str]:

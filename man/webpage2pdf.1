@@ -42,6 +42,32 @@ Read sources from a text file, one per line. Lines beginning with
 .B #
 are comments.
 .TP
+.BR \-p ", " \-\-profile " \fINAME\fR"
+A named bundle of settings:
+.BR essay " (default), " reference ", " booklet ", " device ", " screen ", "
+.BR ereader ", " notes .
+A profile fixes the format, the page geometry, the link handling and the
+numbering together, because those are not independent choices \(em footnotes
+suit paper and are pointless on screen. Any other flag you give overrides it.
+Add your own as TOML under
+.IR ~/.config/webpage2pdf/profiles/ ;
+one sharing a built\-in name replaces it. See
+.BR \-\-list\-profiles .
+.TP
+.BR \-f ", " \-\-format " \fIFMT\fR"
+Output format:
+.BR pdf " (default), " html ", " epub ", " md .
+When not given it is taken from the output filename, so
+.B \-o piece.epub
+is enough.
+.B html
+is a single self\-contained file with fonts and images embedded and subset to
+the characters used;
+.B epub
+reflows, which is the right shape for a phone or an e\-reader;
+.B md
+carries YAML front matter and writes images to a sidecar folder.
+.TP
 .BR \-\-preset " \fINAME\fR"
 Page geometry:
 .BR a4 " (default), " letter ", " a5 ", " book ", " remarkable ", " two-column .
@@ -100,6 +126,9 @@ Print available stylesheet names and exit.
 .B \-\-list\-presets
 Print available page presets and exit.
 .TP
+.B \-\-list\-profiles
+Print available profiles and exit.
+.TP
 .B \-\-doctor
 Check the interpreter, native libraries and every Python package, then report
 the exact fix for anything missing. Works even when the PDF engine cannot load.
@@ -133,6 +162,9 @@ declared language, so non\-English articles break on the right morpheme
 boundaries. Figures are atomic: an image is scaled to fit within a single page
 before rendering, and cannot be split from its caption.
 .SH FILES
+.TP
+.I ~/.config/webpage2pdf/profiles/*.toml
+User\-defined profiles.
 .TP
 .I styles/essay.css
 The stylesheet. Copy it to

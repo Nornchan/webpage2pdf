@@ -418,7 +418,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 os.path.join(OUTPUT_DIR, converter.suggest_filename(result.title))
             )
             final_name = os.path.basename(final_path)
-            os.replace(staging, final_path)
+            converter.finalize_output(staging, final_path)
 
             self._json(200, {
                 "ok": True,

@@ -76,12 +76,64 @@ w2p --from-list links.txt -d reading/
 | `--no-images` | Text only — much smaller files |
 | `--no-url` / `--no-standfirst` | Trim the title block |
 | `--keep-html FILE` | Also save the cleaned HTML, useful for checking what was removed |
+| `--list-profiles` | Show available profiles and exit |
+| `-p`, `--profile NAME` | Named bundle of settings — see below |
+| `-f`, `--format FMT` | `pdf`, `html`, `epub` or `md` (inferred from `-o` when not given) |
 | `--preset NAME` | Page geometry: `a4`, `letter`, `a5`, `book`, `remarkable`, `two-column` |
 | `--toc` / `--no-toc` | Force or suppress the contents list (otherwise automatic) |
 | `--open` | Open each finished PDF in the default viewer |
 | `--list-presets` | Show available page presets and exit |
 | `-V`, `--version` | Print the version and exit |
 | `--doctor` | Check the installation and report what is wrong |
+
+---
+
+## Formats and profiles
+
+The extractor rebuilds every page into the same small set of semantic tags, so a
+PDF is only one of the things that can come out the other end:
+
+```bash
+w2p url -o piece.pdf     # A4, typeset for paper
+w2p url -o piece.html    # one self-contained file, fonts and images embedded
+w2p url -o piece.epub    # reflowable, for a phone or a Kobo
+w2p url -o piece.md      # front matter and Markdown, for a notes folder
+```
+
+The format comes from the filename, or from `--format`.
+
+A **profile** bundles the settings that go together, because they are not
+independent choices — footnotes suit paper and are pointless on screen, section
+numbers help a reference document and clutter an essay:
+
+| Profile | Makes |
+|---|---|
+| `essay` | A4 PDF, quiet links, contents list when the piece is long enough (the default) |
+| `reference` | Two columns, numbered sections, footnoted links |
+| `booklet` | 6×9in facing pages with mirrored margins, for printing double-sided |
+| `device` | Sized to a reMarkable screen |
+| `screen` | One self-contained HTML file, live links |
+| `ereader` | Reflowable EPUB |
+| `notes` | Markdown with YAML front matter |
+
+```bash
+w2p --profile booklet --from-list reading.txt -d week-03/
+```
+
+Any flag you give overrides the profile. Add your own as TOML in
+`~/.config/webpage2pdf/profiles/`:
+
+```toml
+# ~/.config/webpage2pdf/profiles/seminar.toml
+description = "A5 handout for the reading group"
+preset = "a5"
+links = "footnotes"
+numbered = false
+show_url = false
+```
+
+It appears in `--list-profiles` immediately. A user profile sharing a built-in
+name replaces it.
 
 ---
 
