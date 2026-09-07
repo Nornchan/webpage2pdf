@@ -1,0 +1,131 @@
+.\" Manpage for webpage2pdf.
+.TH WEBPAGE2PDF 1 "2026-09-07" "webpage2pdf 0.1.0" "User Commands"
+.SH NAME
+webpage2pdf \- turn web pages into clean A4 PDFs that read like typeset essays
+.SH SYNOPSIS
+.B webpage2pdf
+[\fIOPTION\fR]... \fISOURCE\fR...
+.br
+.B w2p
+[\fIOPTION\fR]... \fISOURCE\fR...
+.SH DESCRIPTION
+.B webpage2pdf
+works out which part of a web page is actually the article, discards the rest,
+and re\-typesets the content for paper.
+.PP
+Saving a page from a browser keeps the site's screen layout and hands pagination
+to an engine that treats page\-break rules as optional, which is why you get
+sidebars, cookie banners, and images sliced across two pages. This tool rebuilds
+the document instead: it scores every container for prose density, strips the
+furniture, normalises the heading hierarchy, caps image heights so no figure can
+exceed one page, and renders through WeasyPrint, which enforces
+.B break-inside: avoid
+rather than treating it as a hint.
+.PP
+Each \fISOURCE\fR is an http(s) URL or a path to a saved
+.I .html
+file.
+.SH OPTIONS
+.TP
+.BR \-o ", " \-\-output " \fIFILE\fR"
+Write to this exact path. Accepts a single source only; use
+.B \-\-dir
+for batches.
+.TP
+.BR \-d ", " \-\-dir " \fIDIR\fR"
+Output directory. Filenames are derived from article titles, with
+.IR name \-2.pdf ", " name \-3.pdf
+used when a name is taken.
+.TP
+.BR \-\-from\-list " \fIFILE\fR"
+Read sources from a text file, one per line. Lines beginning with
+.B #
+are comments.
+.TP
+.BR \-\-style " \fINAME\fR"
+Stylesheet to typeset with. See
+.BR \-\-list\-styles .
+Default:
+.BR essay .
+.TP
+.BR \-\-links " \fIplain\fR|\fIendnotes\fR|\fIkeep\fR"
+How to treat hyperlinks.
+.B plain
+strips link styling and is cleanest on paper;
+.B endnotes
+adds superscript markers and a numbered list at the end;
+.B keep
+leaves links live. Default:
+.BR plain .
+.TP
+.B \-\-no\-numbering
+Omit the automatic section and figure numbers.
+.TP
+.B \-\-no\-images
+Text only. Much smaller files, and faster.
+.TP
+.BR \-\-no\-url ", " \-\-no\-standfirst
+Trim the title block: drop the source URL, or the italic summary line.
+.TP
+.BR \-\-keep\-html " \fIFILE\fR"
+Also write the cleaned HTML. Useful for seeing exactly what was removed.
+.TP
+.BR \-\-timeout " \fISEC\fR"
+Network timeout per request. Default: 30.
+.TP
+.B \-\-list\-styles
+Print available stylesheet names and exit.
+.TP
+.B \-\-doctor
+Check the interpreter, native libraries and every Python package, then report
+the exact fix for anything missing. Works even when the PDF engine cannot load.
+.TP
+.BR \-q ", " \-\-quiet
+Print errors only.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.SH EXAMPLES
+.TP
+Convert a single essay:
+.B webpage2pdf https://example.com/some\-essay
+.TP
+A saved file, to a chosen path:
+.B w2p saved\-page.html \-o reading/week\-03.pdf
+.TP
+A batch, named from article titles:
+.B w2p url1 url2 saved.html \-d reading/
+.TP
+A week's reading list, with links collected as endnotes:
+.B w2p \-\-from\-list links.txt \-d reading/ \-\-links endnotes
+.SH TYPOGRAPHY
+Output is A4 with 25mm margins, a serif body justified with hyphenation, and
+first\-line indents. The hyphenation dictionary is chosen from the source page's
+declared language, so non\-English articles break on the right morpheme
+boundaries. Figures are atomic: an image is scaled to fit within a single page
+before rendering, and cannot be split from its caption.
+.SH FILES
+.TP
+.I styles/essay.css
+The stylesheet. Copy it to
+.I styles/<name>.css
+and it becomes available as
+.BR "\-\-style <name>" .
+.SH EXIT STATUS
+.TP
+.B 0
+All sources converted.
+.TP
+.B 1
+At least one source failed, or the arguments were invalid.
+.TP
+.B 130
+Interrupted.
+.SH SEE ALSO
+.BR webpage2pdf-server (1)
+for the local drag\-and\-drop web front end.
+.SH BUGS
+JavaScript\-rendered and paywalled pages yield little text, because the HTML the
+server sends is what gets parsed; no scripts are run. Save such a page from your
+browser and convert the file. The tool warns when a result looks suspiciously
+thin.

@@ -1,0 +1,32 @@
+#compdef webpage2pdf w2p
+# zsh completion for webpage2pdf
+
+_webpage2pdf_styles() {
+    local -a styles
+    # Query the installed tool rather than hardcoding, so a stylesheet dropped
+    # into styles/ completes immediately.
+    styles=( ${(f)"$(webpage2pdf --list-styles 2>/dev/null)"} )
+    _describe -t styles 'stylesheet' styles
+}
+
+_arguments -s -S \
+  '(-h --help)'{-h,--help}'[show help and exit]' \
+  '(-V --version)'{-V,--version}'[show version and exit]' \
+  '(-o --output)'{-o,--output}'[exact output PDF path (single source only)]:pdf file:_files -g "*.pdf"' \
+  '(-d --dir)'{-d,--dir}'[output directory; names come from article titles]:directory:_files -/' \
+  '--from-list[read sources from a file, one per line]:list file:_files' \
+  '--style[stylesheet name]:style:_webpage2pdf_styles' \
+  '--links[how to treat links]:mode:((
+      plain\:"strip link styling — cleanest on paper"
+      endnotes\:"superscript markers plus a numbered list at the end"
+      keep\:"leave links live and underlined"))' \
+  '--no-numbering[omit automatic section and figure numbers]' \
+  '--no-images[text only — smaller files, faster]' \
+  '--no-url[omit the source URL from the title block]' \
+  '--no-standfirst[omit the italic summary line under the title]' \
+  '--keep-html[also save the cleaned HTML]:html file:_files -g "*.html"' \
+  '--timeout[network timeout per request, seconds]:seconds:' \
+  '--list-styles[show available stylesheets and exit]' \
+  '--doctor[check the installation and report what is wrong]' \
+  '(-q --quiet)'{-q,--quiet}'[only print errors]' \
+  '*:source:_files -g "*.(html|htm)"'

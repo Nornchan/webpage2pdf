@@ -1,0 +1,36 @@
+.\" Manpage for webpage2pdf-server.
+.TH WEBPAGE2PDF-SERVER 1 "2026-09-07" "webpage2pdf 0.1.0" "User Commands"
+.SH NAME
+webpage2pdf\-server \- local drag\-and\-drop web front end for webpage2pdf
+.SH SYNOPSIS
+.B webpage2pdf-server
+[\fB\-p\fR \fIPORT\fR] [\fB\-o\fR \fIDIR\fR] [\fB\-\-no\-browser\fR]
+.SH DESCRIPTION
+Starts a small web app on
+.I http://127.0.0.1:8765
+and opens it in your browser. Paste links or file paths one per line, or drop
+saved
+.I .html
+files onto the page.
+.PP
+The server binds to
+.I 127.0.0.1
+only, so it is not reachable from the network, and it is built on the Python
+standard library, so there is no web framework to install. Nothing is uploaded
+anywhere; the only outbound traffic is fetching the pages you asked for.
+.SH OPTIONS
+.TP
+.BR \-p ", " \-\-port " \fIPORT\fR"
+Port to listen on. Default: 8765.
+.TP
+.BR \-o ", " \-\-output " \fIDIR\fR"
+Where finished PDFs are saved. Default:
+.IR ~/Documents/webpage2pdf .
+.TP
+.B \-\-no\-browser
+Do not open a browser window on start.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.SH SEE ALSO
+.BR webpage2pdf (1)

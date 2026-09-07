@@ -8,7 +8,17 @@ Saving a page from your browser keeps the site's screen layout and hands the pag
 
 ## Setup
 
-**macOS, one time:**
+**With Homebrew** (once the tap is published — see `packaging/RELEASE.md`):
+
+```bash
+brew install <you>/tap/webpage2pdf
+```
+
+This is the path worth preferring. Homebrew builds the virtualenv from its own
+Python with `pango` as a declared dependency, which sidesteps the native-library
+problem described under Troubleshooting rather than working around it at runtime.
+
+**From source, macOS, one time:**
 
 ```bash
 bash setup.sh
