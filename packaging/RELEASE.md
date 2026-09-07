@@ -21,6 +21,44 @@ dependency pins" are the ones you'll actually repeat for a future release;
 "Create the tap" is a one-time action, done, kept here only in case the tap
 ever needs to be recreated from scratch.
 
+## Changelog
+
+### [v0.1.1](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.1) — 2026-09-07
+
+Homebrew packaging fix. The formula did not actually build from source:
+
+- Pillow's sdist build needs `cmake`/`ninja` on `PATH`; without them declared,
+  pip tried to bootstrap both from source inside Homebrew's sandboxed build
+  environment and failed with an unrelated-looking `lipo` error against a
+  shim script rather than a real binary.
+- Every library dependency was declared (`jpeg-turbo`, `freetype`, ...) but
+  not `pkg-config` itself, the tool that actually reads their `.pc` files, so
+  Pillow's build could not find libjpeg.
+
+Both fixed with `depends_on ... => :build`. Also renamed the
+`typing_extensions` resource to `typing-extensions` to match its PyPI package
+name (`brew audit --strict`), and corrected a false claim in the formula,
+README and this file that Homebrew's `pango` dependency eliminates the
+`DYLD_FALLBACK_LIBRARY_PATH` re-exec in `_bootstrap.py`. It does not — dyld's
+default search path never includes `/opt/homebrew/lib` regardless of how
+pango was installed; what the dependency actually buys is that the fix always
+finds a correctly-linked library and always succeeds.
+
+Verified end to end: `brew install` from a genuinely fresh, untapped,
+untrusted machine state; `brew upgrade webpage2pdf` against a real prior
+0.1.0 install (not just a fresh install); `brew test` and
+`brew audit --strict --online` both exit clean.
+
+### [v0.1.0](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.0) — 2026-09-07
+
+First packaged release. Installable via pip (`webpage2pdf` / `w2p` /
+`webpage2pdf-server` entry points) or Homebrew; bundled Literata typography
+with a full OpenType layer; four output formats (PDF/HTML/EPUB/Markdown);
+seven profiles; six page presets; a fetch cache; parallel batch conversion;
+CI across Linux and macOS; and four real, silent extraction bugs found and
+fixed by testing against actual production pages (Wikipedia, Python docs, and
+1990s hand-written HTML) rather than only synthetic fixtures.
+
 ## 1. Publish the source repository
 
 ```bash
