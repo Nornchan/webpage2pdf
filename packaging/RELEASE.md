@@ -47,12 +47,16 @@ in nav, sidebar and footer, then asserts the PDF is real, the article survived
 and the footer did not. All six of its assertions have been checked against the
 working tool, so a failure means the packaging is wrong, not the test.
 
-## 5. Confirm the install path skips the bootstrap
+## 5. Confirm pango is found reliably
 
-The main reason to package this properly is that the Homebrew venv is built from
-Homebrew's own Python with `pango` as a declared dependency, so
-`_bootstrap.ensure_native_libs()` finds nothing to fix and never re-execs. Source
-installs still need it. Check:
+The Homebrew venv is built from Homebrew's own Python with `pango` as a
+declared dependency. `_bootstrap.ensure_native_libs()`'s
+DYLD_FALLBACK_LIBRARY_PATH re-exec still runs — dyld's default search path
+never includes `/opt/homebrew/lib`, Homebrew build or not, confirmed by
+tracing it against an actual Homebrew-installed interpreter — but it now
+always finds a correctly-linked pango and always succeeds, rather than
+depending on you having separately run `brew install pango` and built the
+venv from that same Homebrew Python rather than Anaconda's. Check:
 
 ```bash
 brew install Nornchan/tap/webpage2pdf

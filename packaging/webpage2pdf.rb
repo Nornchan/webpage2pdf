@@ -7,22 +7,61 @@ class Webpage2pdf < Formula
   desc "Turn web pages into clean A4 PDFs that read like typeset essays"
   homepage "https://github.com/Nornchan/webpage2pdf"
   url "https://github.com/Nornchan/webpage2pdf/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "REPLACE_AFTER_RELEASE"
+  sha256 "bebcc5449dc085d9ac881ca2011e1e649a6fe84b5666e637ad031a6e914355f5"
   license "MIT"
   head "https://github.com/Nornchan/webpage2pdf.git", branch: "main"
 
-  # Alphabetical, as brew style requires. Two groups are doing the real work:
+  # Alphabetical within each group, as brew style requires — build-time
+  # dependencies sort as their own group, ahead of runtime ones. Three groups
+  # are doing the real work:
+  #
+  #   cmake, ninja (build-time only) — Pillow's sdist build needs both to run
+  #            its own meson/scikit-build-core backend. Without a real one on
+  #            PATH, pip tries to bootstrap ninja from source *inside*
+  #            Homebrew's sandboxed build environment, whose "superenv" PATH
+  #            carries a shim script for ninja rather than a real binary
+  #            (used to intercept and log tool invocations). That bootstrap's
+  #            own build step runs `lipo` against the shim to check its
+  #            architecture, `lipo` expects a Mach-O binary and gets a shell
+  #            script, and the whole build fails with "can't figure out the
+  #            architecture type of ... shims/mac/super/bin/ninja" — a real,
+  #            reproducible failure for anyone building from source without a
+  #            cached bottle, not a fluke of one test run. Declaring both here
+  #            puts Homebrew's real binaries on PATH first, and Pillow's build
+  #            backend finds them via shutil.which() before ever trying to
+  #            build its own.
   #
   #   pango  — WeasyPrint does not bundle its text engine; it dlopen()s Pango at
-  #            runtime. Declaring it here is what makes the whole
-  #            DYLD_FALLBACK_LIBRARY_PATH dance in _bootstrap.py unnecessary for
-  #            Homebrew installs: brew links the library where dyld already
-  #            looks, and the venv is built from Homebrew's own Python rather
-  #            than Anaconda's — the two causes of the "cannot load library
-  #            libpango-1.0-0" error that source installs hit.
+  #            runtime, and dyld's default search path never includes
+  #            /opt/homebrew/lib on Apple Silicon, Homebrew build or not —
+  #            _bootstrap.py's DYLD_FALLBACK_LIBRARY_PATH re-exec still runs
+  #            here exactly as it does for a source install (confirmed by
+  #            tracing it against this formula's own installed interpreter).
+  #            What declaring pango here actually buys you: the library is
+  #            *guaranteed present and correctly linked*, so that re-exec
+  #            always finds it and always succeeds — a source install depends
+  #            on the user having separately run `brew install pango`
+  #            themselves and the venv having been built from that same
+  #            Homebrew Python rather than Anaconda's, which is what the
+  #            "cannot load library libpango-1.0-0" error actually is.
+  #
+  #   pkg-config (build-time only) — declaring jpeg-turbo, freetype and the
+  #            rest supplies their .pc files, but not a real pkg-config binary
+  #            to read them with. Without it, Homebrew's sandboxed superenv
+  #            still shims the pkg-config *command* on PATH, and that shim
+  #            execs a real binary at a fixed path that doesn't exist —
+  #            failing with "cannot execute: No such file or directory" —
+  #            which sends Pillow's own build down a path where it can't find
+  #            libjpeg at all and dies with RequiredDependencyException: jpeg.
+  #            A genuinely easy one to miss, since every *library* dependency
+  #            is declared correctly; it's the tool that reads them that was
+  #            absent.
   #
   #   the rest — freetype, jpeg-turbo, libpng, libxml2, libxslt, little-cms2,
   #            openjpeg and webp are what Pillow and lxml build against.
+  depends_on "cmake" => :build
+  depends_on "ninja" => :build
+  depends_on "pkg-config" => :build
   depends_on "freetype"
   depends_on "jpeg-turbo"
   depends_on "libpng"
@@ -122,7 +161,7 @@ class Webpage2pdf < Formula
     sha256 "60a50ec3d938a37e491efa01af895853060943dcebb5627de5b10d188b338a67"
   end
 
-  resource "typing_extensions" do
+  resource "typing-extensions" do
     url "https://files.pythonhosted.org/packages/f6/cc/6253133b5bb138fc3306cebfbda2c520f545d36b5be2c7255cc528bb45d6/typing_extensions-4.16.0.tar.gz"
     sha256 "dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5"
   end

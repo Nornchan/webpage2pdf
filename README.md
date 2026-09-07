@@ -17,8 +17,13 @@ brew install <you>/tap/webpage2pdf
 ```
 
 This is the path worth preferring. Homebrew builds the virtualenv from its own
-Python with `pango` as a declared dependency, which sidesteps the native-library
-problem described under Troubleshooting rather than working around it at runtime.
+Python with `pango` as a declared dependency, so the library is guaranteed
+present and correctly linked — the runtime fix under Troubleshooting still
+runs (dyld's default search path never includes `/opt/homebrew/lib`, Homebrew
+build or not), it just always finds what it's looking for. A source install
+depends on you having separately run `brew install pango` and built the venv
+from that same Homebrew Python rather than Anaconda's, which is what the
+`libpango-1.0-0` error under Troubleshooting actually is.
 
 **From source, macOS, one time:**
 
