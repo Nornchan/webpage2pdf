@@ -1,0 +1,951 @@
+"""
+extractor.py — turn a messy web page into clean, semantic HTML.
+
+The job here is structural, not cosmetic. We work out which part of the page is
+actually the article, throw away the furniture (nav, share buttons, related-story
+rails, newsletter nags), and then rebuild what's left as a small, predictable set
+of tags: h1-h4, p, ul/ol, blockquote, figure/figcaption, table, pre.
+
+Everything downstream (the stylesheet, the page-break rules) can then assume a
+tidy document instead of guessing at whatever div soup the site shipped.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import io
+import mimetypes
+import os
+import re
+import urllib.parse
+from dataclasses import dataclass, field
+
+import requests
+from bs4 import BeautifulSoup, NavigableString, Tag
+
+try:
+    from PIL import Image
+    HAVE_PIL = True
+except ImportError:  # pragma: no cover
+    HAVE_PIL = False
+
+
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"
+)
+
+# Elements that never survive, wherever they appear.
+DROP_TAGS = {
+    "script", "style", "noscript", "iframe", "form", "button", "input",
+    "select", "textarea", "object", "embed", "canvas", "template",
+    "link", "meta", "svg", "video", "audio", "source", "track", "map",
+    "ins", "dialog",
+}
+
+# Whole-page furniture: removed before we choose the article container.
+STRUCTURAL_JUNK = re.compile(
+    r"(^|[-_\s])("
+    r"nav|navigation|navbar|navbox|menu|megamenu|topbar|sidebar|side-bar|"
+    r"footer|masthead|banner|breadcrumb|pagination|paginate|"
+    r"skip-link|screen-reader|sr-only|visually-hidden|noprint|"
+    r"cookie|consent|gdpr|privacy-banner|"
+    r"modal|popup|overlay|lightbox|drawer|offcanvas|"
+    # Encyclopaedia and CMS chrome that otherwise reads as body text
+    r"toc|table-of-contents|tableofcontents|toctitle|toc-container|"
+    r"infobox|vcard|metadata|catlinks|printfooter|sitesub|site-sub|"
+    r"hatnote|shortdescription|ambox|mbox|sistersitebox|mw-jump|"
+    r"editsection|edit-section|headerlink|header-link|anchor-link|permalink"
+    r")([-_\s]|$)",
+    re.I,
+)
+
+# Anchors that are page furniture rather than prose: "edit", "¶", "jump to".
+JUNK_ANCHOR_TEXT = re.compile(
+    r"^\s*(edit|edit source|\[edit\]|¶|#|§|link|permalink|jump to[\w\s]*|"
+    r"enlarge|expand|collapse|show|hide|top|back to top)\s*$", re.I
+)
+
+# Classes that mark a caption sitting outside its <figure>.
+CAPTION_HINT = re.compile(
+    r"(^|[-_\s])(thumbcaption|wp-caption-text|caption|image-caption|media-caption|"
+    r"figure-caption|figcaption|photo-caption|credit-caption)([-_\s]|$)", re.I
+)
+
+# In-article clutter: removed after the container is chosen, so we don't
+# accidentally eat the headline or a legitimate section.
+INLINE_JUNK = re.compile(
+    r"(^|[-_\s])("
+    r"share|sharing|social|socials|follow-us|"
+    r"advert|advertis|adsbygoogle|ad-slot|ad-unit|ad-container|google-ad|dfp|"
+    r"promo|promotion|sponsor|sponsored|partner-content|taboola|outbrain|"
+    r"subscribe|subscription|newsletter|signup|sign-up|paywall|piano|meter|"
+    r"comment|comments|disqus|livefyre|"
+    r"related|recommend|recirc|read-next|read-more|more-from|more-on|"
+    r"trending|popular|most-read|latest-news|"
+    r"author-bio|contributor-bio|newsletter-form|"
+    r"toolbar|utility-bar|action-bar|toolbelt|"
+    r"caption-credit-only|image-credit-standalone"
+    r")([-_\s]|$)",
+    re.I,
+)
+
+# URL fragments that mark an image as decoration or telemetry rather than content.
+JUNK_IMAGE_URL = re.compile(
+    r"(spacer|pixel|blank|1x1|transparent|tracking|beacon|analytics|"
+    r"logo|icon|avatar|sprite|badge|button|arrow|bullet|divider|"
+    r"placeholder|loading|spinner|lazy-?load|data:image/gif;base64,R0lGOD)",
+    re.I,
+)
+
+INLINE_TAGS = {
+    "a", "b", "strong", "i", "em", "u", "span", "code", "sub", "sup",
+    "abbr", "cite", "q", "small", "mark", "time", "br", "s", "del", "ins",
+    "kbd", "samp", "var", "big", "font", "tt", "label", "bdi", "bdo", "wbr",
+}
+
+BLOCK_TAGS = {
+    "p", "div", "section", "article", "aside", "h1", "h2", "h3", "h4", "h5",
+    "h6", "ul", "ol", "li", "blockquote", "pre", "table", "figure", "hr",
+    "dl", "dt", "dd", "header", "footer", "main", "nav", "details",
+}
+
+# Attributes we keep. Everything else is stripped so no site CSS leaks through.
+KEEP_ATTRS = {
+    # `style` survives on <img> only: it carries the computed print width that
+    # keeps tall images inside a single page.
+    "img": {"src", "alt", "style"},
+    "a": {"href"},
+    "th": {"colspan", "rowspan", "scope"},
+    "td": {"colspan", "rowspan"},
+    "ol": {"start", "type", "class"},
+    "ul": {"class"},
+    "figure": {"class"},
+    "div": {"class"},
+    "span": {"class"},
+    "p": {"class"},
+}
+
+
+@dataclass
+class Article:
+    """The finished, cleaned document, ready to be poured into a template."""
+
+    title: str = ""
+    byline: str = ""
+    published: str = ""
+    site: str = ""
+    source_url: str = ""
+    excerpt: str = ""
+    body_html: str = ""
+    word_count: int = 0
+    images: int = 0
+    endnotes: list[tuple[str, str]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+# --------------------------------------------------------------------------
+# Fetching
+# --------------------------------------------------------------------------
+
+def fetch(url: str, timeout: int = 30) -> tuple[str, str]:
+    """Download a page. Returns (html, final_url) after redirects."""
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    resp = requests.get(url, headers=headers, timeout=timeout)
+    resp.raise_for_status()
+
+    # requests' default latin-1 guess for text/* mangles UTF-8 pages, so only
+    # trust the declared charset when the server actually declared one.
+    if resp.encoding and "charset" not in resp.headers.get("content-type", "").lower():
+        resp.encoding = resp.apparent_encoding or resp.encoding
+    return resp.text, resp.url
+
+
+def read_local(path: str) -> tuple[str, str]:
+    """Read a saved .html file. Returns (html, file:// base URL)."""
+    with open(path, "rb") as fh:
+        raw = fh.read()
+
+    html = None
+    # Honour a declared charset if there is one, otherwise try the usual suspects.
+    match = re.search(rb'charset=["\']?([\w-]+)', raw[:4096], re.I)
+    if match:
+        try:
+            html = raw.decode(match.group(1).decode("ascii", "ignore"), errors="replace")
+        except (LookupError, UnicodeDecodeError):
+            html = None
+    if html is None:
+        for enc in ("utf-8", "utf-8-sig", "gb18030", "big5", "shift_jis", "cp1252"):
+            try:
+                html = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+    if html is None:
+        html = raw.decode("utf-8", errors="replace")
+
+    base = "file://" + urllib.parse.quote(os.path.abspath(path))
+    return html, base
+
+
+# --------------------------------------------------------------------------
+# Stage 1 — strip the page furniture
+# --------------------------------------------------------------------------
+
+def _gone(el) -> bool:
+    """
+    True if a previous decompose() already removed this node.
+
+    find_all() hands back a snapshot, so by the time we reach an element its
+    ancestor may already have been destroyed — touching it would raise.
+    """
+    if el is None or not isinstance(el, Tag):
+        return True
+    if getattr(el, "decomposed", False):
+        return True
+    return el.attrs is None
+
+
+def _matches(el: Tag, pattern: re.Pattern) -> bool:
+    if _gone(el):
+        return False
+    tokens = " ".join(
+        [el.get("id") or ""] + list(el.get("class") or []) + [el.get("role") or ""]
+    )
+    return bool(tokens.strip()) and bool(pattern.search(tokens))
+
+
+def _kill(elements) -> None:
+    for el in elements:
+        if not _gone(el):
+            el.decompose()
+
+
+def _strip_global(soup: BeautifulSoup) -> None:
+    _kill(soup.find_all(list(DROP_TAGS)))
+
+    for el in soup.find_all(attrs={"aria-hidden": "true"}):
+        # aria-hidden on a big text container is usually a duplicated mobile view.
+        if not _gone(el) and len(el.get_text(strip=True)) < 4000:
+            el.decompose()
+
+    for role in ("navigation", "banner", "complementary", "search", "contentinfo", "dialog"):
+        _kill(soup.find_all(attrs={"role": role}))
+
+    _kill(soup.find_all(["nav", "aside"]))
+
+    # <footer> and <header> only go if they sit outside an <article>.
+    for el in soup.find_all(["footer", "header"]):
+        if not _gone(el) and not el.find_parent("article"):
+            el.decompose()
+
+    for el in soup.find_all(True):
+        if _matches(el, STRUCTURAL_JUNK):
+            el.decompose()
+
+    _kill(soup.find_all(style=re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.I)))
+    _kill(soup.find_all(hidden=True))
+
+
+# --------------------------------------------------------------------------
+# Stage 2 — find the article container
+# --------------------------------------------------------------------------
+
+def _link_density(node: Tag, text_len: int) -> float:
+    if text_len == 0:
+        return 1.0
+    link_len = sum(len(a.get_text(" ", strip=True)) for a in node.find_all("a"))
+    return min(link_len / text_len, 1.0)
+
+
+def _score(node: Tag) -> float:
+    """Rough heuristic: lots of prose, few links, semantic tag = probably the article."""
+    text = node.get_text(" ", strip=True)
+    n = len(text)
+    if n < 250:
+        return 0.0
+
+    density = _link_density(node, n)
+    if density > 0.55:
+        return 0.0
+
+    paragraphs = [p for p in node.find_all("p") if len(p.get_text(strip=True)) > 40]
+    if not paragraphs:
+        return 0.0
+
+    score = n * (1.0 - density)
+    score += len(paragraphs) * 45
+    score += len(node.find_all(["h2", "h3", "h4"])) * 25
+    score += len(node.find_all(["blockquote", "figure", "pre", "table"])) * 20
+    # Comma count is a decent proxy for real prose vs. lists of links.
+    score += text.count(",") * 3
+
+    if node.name == "article":
+        score *= 1.5
+    elif node.name == "main" or node.get("role") == "main":
+        score *= 1.35
+    elif node.name in ("body", "html"):
+        score *= 0.6
+
+    tokens = " ".join([node.get("id") or ""] + list(node.get("class") or []))
+    if re.search(r"(^|[-_\s])(article|post|entry|story|content|main|body|text|prose|rich-text)", tokens, re.I):
+        score *= 1.25
+
+    return score
+
+
+def _find_content_root(soup: BeautifulSoup) -> Tag:
+    body = soup.body or soup
+    candidates = body.find_all(["article", "main", "section", "div", "td"])
+    candidates.append(body)
+
+    scored = [(c, _score(c)) for c in candidates]
+    scored = [(c, s) for c, s in scored if s > 0]
+    if not scored:
+        return body
+
+    scored.sort(key=lambda pair: pair[1], reverse=True)
+    best, best_score = scored[0]
+
+    # A wrapper div often scores the same as the article it contains. Prefer the
+    # tighter, deeper node when it holds essentially the same prose.
+    best_paras = len(best.find_all("p"))
+    for node, score in scored[1:8]:
+        if node in best.descendants and score >= best_score * 0.92:
+            if len(node.find_all("p")) >= best_paras * 0.9:
+                best, best_score, best_paras = node, score, len(node.find_all("p"))
+
+    return best
+
+
+def _clean_content(root: Tag) -> None:
+    """Second, gentler sweep — now that we know this is the article."""
+    for el in root.find_all(True):
+        if _gone(el):
+            continue
+        if _matches(el, INLINE_JUNK):
+            # A heading inside means we probably matched a real section name
+            # like "Related concepts" in an explainer; keep it if it's prose-heavy.
+            if len(el.get_text(strip=True)) > 900 and el.find(["p"]):
+                continue
+            el.decompose()
+
+    _strip_heading_furniture(root)
+    _strip_footnote_markers(root)
+    _strip_toc(root)
+
+
+def _strip_heading_furniture(root: Tag) -> None:
+    """Remove the 'edit' / '¶' permalinks that sites hang off their headings."""
+    for h in root.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+        if _gone(h):
+            continue
+        for a in h.find_all("a"):
+            if JUNK_ANCHOR_TEXT.match(a.get_text(" ", strip=True)):
+                a.decompose()
+        # Some themes wrap the marker in a span with no useful class.
+        text = h.get_text(" ", strip=True)
+        cleaned = re.sub(r"\s*\[?\s*edit(\s+source)?\s*\]?\s*$", "", text, flags=re.I)
+        if cleaned != text:
+            h.clear()
+            h.append(cleaned)
+
+
+def _strip_footnote_markers(root: Tag) -> None:
+    """
+    Drop citation superscripts like [1] that point at footnotes we aren't
+    carrying over. Matched by their link target, so real superscripts (x²) stay.
+    """
+    for sup in root.find_all("sup"):
+        if _gone(sup):
+            continue
+        classes = " ".join(sup.get("class") or [])
+        links = sup.find_all("a")
+        points_at_note = any(
+            re.match(r"#(cite|fn|note|ref|footnote|endnote)", a.get("href") or "", re.I)
+            for a in links
+        )
+        if points_at_note or re.search(r"reference|footnote|citation", classes, re.I):
+            sup.decompose()
+
+
+def _strip_toc(root: Tag) -> None:
+    """
+    Remove a table of contents that survived by having no useful class:
+    a 'Contents' heading followed by a list that is almost entirely links.
+    """
+    for h in root.find_all(["h2", "h3", "h4"]):
+        if _gone(h):
+            continue
+        if not re.match(r"^\s*(contents|table of contents|in this article|jump to)\s*$",
+                        h.get_text(" ", strip=True), re.I):
+            continue
+        nxt = h.find_next_sibling()
+        if nxt is not None and nxt.name in ("ul", "ol"):
+            text_len = len(nxt.get_text(" ", strip=True))
+            if text_len and _link_density(nxt, text_len) > 0.7:
+                nxt.decompose()
+                h.decompose()
+
+    # Any remaining list that is nothing but internal anchors is navigation.
+    for lst in root.find_all(["ul", "ol"]):
+        if _gone(lst):
+            continue
+        items = lst.find_all("li", recursive=False)
+        if len(items) < 3:
+            continue
+        anchors = [a for a in lst.find_all("a") if (a.get("href") or "").startswith("#")]
+        if len(anchors) >= len(items) and len(lst.get_text(strip=True)) < 500:
+            lst.decompose()
+
+
+def _adopt_captions(root: Tag) -> None:
+    """
+    Pull caption text into the <figure> it describes.
+
+    Many CMSes put the caption in a sibling div, which would otherwise print as
+    a stray body paragraph — and, worse, could be split onto the page after the
+    image it belongs to.
+    """
+    for el in list(root.find_all(["div", "p", "span", "figcaption"])):
+        if _gone(el) or el.name == "figcaption":
+            continue
+        if not _matches(el, CAPTION_HINT):
+            continue
+
+        text = el.get_text(" ", strip=True)
+        if not text or len(text) > 600:
+            continue
+
+        # Find the image this caption belongs to: inside the same wrapper,
+        # or immediately before/after in the document.
+        img = None
+        for scope in (el.parent, el.parent.parent if el.parent else None):
+            if scope is not None and not _gone(scope):
+                found = scope.find("img")
+                if found is not None:
+                    img = found
+                    break
+        if img is None:
+            sib = el.find_previous_sibling()
+            if sib is not None and sib.find("img"):
+                img = sib.find("img")
+        if img is None:
+            continue
+
+        cap = BeautifulSoup("<figcaption></figcaption>", "html.parser").figcaption
+        cap.string = text
+        el.decompose()
+
+        fig = img.find_parent("figure")
+        if fig is not None:
+            if fig.find("figcaption") is None:
+                fig.append(cap)
+        else:
+            new_fig = BeautifulSoup('<figure class="w2p-figure"></figure>',
+                                    "html.parser").figure
+            img.replace_with(new_fig)
+            new_fig.append(img)
+            new_fig.append(cap)
+
+
+# --------------------------------------------------------------------------
+# Stage 3 — normalise the structure
+# --------------------------------------------------------------------------
+
+def _strip_attrs(root: Tag) -> None:
+    for el in root.find_all(True):
+        allowed = KEEP_ATTRS.get(el.name, set())
+        for attr in list(el.attrs):
+            if attr not in allowed:
+                del el[attr]
+        # Only our own classes survive; site classes mean nothing to our CSS.
+        if "class" in el.attrs:
+            el["class"] = [c for c in el["class"] if c.startswith("w2p-")]
+            if not el["class"]:
+                del el["class"]
+
+
+def _simplify_inline(root: Tag) -> None:
+    swaps = {"b": "strong", "i": "em", "u": "em"}
+    for old, new in swaps.items():
+        for el in root.find_all(old):
+            el.name = new
+    for name in ("span", "font", "tt", "big", "small", "label", "bdi", "bdo", "abbr", "time", "mark", "s", "del"):
+        for el in root.find_all(name):
+            el.unwrap()
+
+
+def _drop_empty(root: Tag) -> None:
+    """Remove nodes with no text and no image — usually layout scaffolding."""
+    for _ in range(4):  # repeat: emptying a child can empty its parent
+        removed = False
+        for el in root.find_all(["p", "div", "section", "li", "blockquote", "figure",
+                                 "span", "h1", "h2", "h3", "h4"]):
+            if _gone(el) or el.find(["img", "hr", "table", "pre"]):
+                continue
+            text = el.get_text().replace("\xa0", " ").strip()
+            if not text:
+                el.decompose()
+                removed = True
+        if not removed:
+            break
+    for hr in root.find_all("hr"):
+        # Trailing/leading rules add nothing once the furniture is gone.
+        if hr.find_next_sibling() is None or hr.find_previous_sibling() is None:
+            hr.decompose()
+
+
+def _promote_text_blocks(root: Tag) -> None:
+    """Turn div-wrapped prose into real paragraphs, then unwrap the leftover divs."""
+    for div in root.find_all(["div", "section", "article", "main", "header", "footer", "details", "summary"]):
+        if div is root:
+            continue
+        has_block_child = any(
+            isinstance(c, Tag) and c.name in BLOCK_TAGS for c in div.children
+        )
+        if not has_block_child and div.get_text(strip=True):
+            div.name = "p"
+            div.attrs = {}
+
+    # Any div still standing is pure scaffolding.
+    for div in root.find_all(["div", "section", "article", "main", "header", "footer", "details", "summary"]):
+        if div is not root:
+            div.unwrap()
+
+    # Loose text sitting directly in the root needs a paragraph around it.
+    for child in list(root.children):
+        if isinstance(child, NavigableString) and child.strip():
+            p = BeautifulSoup("<p></p>", "html.parser").p
+            text = str(child).strip()
+            child.replace_with(p)
+            p.string = text
+
+
+def _fix_lists(root: Tag) -> None:
+    for li in root.find_all("li"):
+        for p in li.find_all("p"):
+            # A single paragraph in a list item is redundant nesting.
+            if len(li.find_all("p")) == 1 and not li.find(["ul", "ol"]):
+                p.unwrap()
+    # A short list reads as a single unit, so keep it on one page. Long lists
+    # are left breakable — forcing those onto one page would blow out the layout.
+    for lst in root.find_all(["ul", "ol"]):
+        if _gone(lst) or lst.find_parent(["ul", "ol"]):
+            continue
+        items = lst.find_all("li", recursive=False)
+        if 0 < len(items) <= 5 and len(lst.get_text(" ", strip=True)) < 700:
+            lst["class"] = ["w2p-tight"]
+
+    for dl in root.find_all("dl"):
+        dl.name = "ul"
+        for dt in dl.find_all("dt"):
+            dt.name = "li"
+            strong = BeautifulSoup("<strong></strong>", "html.parser").strong
+            strong.string = dt.get_text(" ", strip=True)
+            dt.clear()
+            dt.append(strong)
+        for dd in dl.find_all("dd"):
+            dd.name = "li"
+
+
+def _remap_headings(root: Tag, title: str) -> None:
+    """
+    Re-level headings so the document reads as one coherent hierarchy.
+
+    Sites use h1-h6 inconsistently — some articles start their sections at h3,
+    others reuse h1 for every subhead. We find the shallowest level actually in
+    use and slide everything up so the top section level becomes h2.
+    """
+    # A heading duplicating the title is redundant once we print our own.
+    norm_title = re.sub(r"\W+", "", title).lower()
+    for h in root.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+        if norm_title and re.sub(r"\W+", "", h.get_text()).lower() == norm_title:
+            h.decompose()
+
+    headings = root.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
+    if not headings:
+        return
+
+    levels = sorted({int(h.name[1]) for h in headings})
+    shift = levels[0] - 2  # shallowest level becomes h2
+    for h in headings:
+        new_level = int(h.name[1]) - shift
+        h.name = "h" + str(max(2, min(4, new_level)))  # clamp to h2-h4
+
+    # A heading with nothing under it is a label, not a section.
+    for h in root.find_all(["h2", "h3", "h4"]):
+        if h.find_next_sibling() is None:
+            h.decompose()
+
+
+def _wrap_tables(root: Tag) -> None:
+    for table in root.find_all("table"):
+        for nested in table.find_all(["div", "section", "span"]):
+            nested.unwrap()
+        # Give a header-less table a header row so repeats work across pages.
+        if not table.find("thead"):
+            first_row = table.find("tr")
+            if first_row and all(c.name == "th" for c in first_row.find_all(["td", "th"])):
+                thead = BeautifulSoup("<thead></thead>", "html.parser").thead
+                first_row.wrap(thead)
+        if table.parent.name != "figure":
+            fig = BeautifulSoup('<figure class="w2p-table"></figure>', "html.parser").figure
+            table.wrap(fig)
+
+
+# --------------------------------------------------------------------------
+# Stage 4 — images
+# --------------------------------------------------------------------------
+
+def _best_from_srcset(srcset: str) -> str | None:
+    """Pick the highest-resolution candidate so print output stays sharp."""
+    best_url, best_weight = None, -1.0
+    for part in srcset.split(","):
+        bits = part.strip().split()
+        if not bits:
+            continue
+        url = bits[0]
+        weight = 1.0
+        if len(bits) > 1:
+            descriptor = bits[1]
+            try:
+                if descriptor.endswith("w"):
+                    weight = float(descriptor[:-1])
+                elif descriptor.endswith("x"):
+                    weight = float(descriptor[:-1]) * 1000
+            except ValueError:
+                weight = 1.0
+        if weight > best_weight:
+            best_url, best_weight = url, weight
+    return best_url
+
+
+def _resolve_src(img: Tag, base_url: str) -> str | None:
+    """Dig the real URL out of src, srcset, or any of the lazy-load attributes."""
+    candidates = []
+    for attr in ("data-srcset", "srcset"):
+        if img.get(attr):
+            picked = _best_from_srcset(img[attr])
+            if picked:
+                candidates.append(picked)
+    for attr in (
+        "src", "data-src", "data-original", "data-lazy-src", "data-lazy",
+        "data-hi-res-src", "data-full-src", "data-image", "data-url", "data-echo",
+    ):
+        if img.get(attr):
+            candidates.append(img[attr])
+
+    for cand in candidates:
+        cand = cand.strip()
+        if not cand or cand.startswith("data:image/gif"):
+            continue
+        if cand.startswith("data:"):
+            return cand
+        return urllib.parse.urljoin(base_url, cand)
+    return None
+
+
+def _download_image(url: str, asset_dir: str, session: requests.Session) -> str | None:
+    """Save an image locally and return its path, or None if unusable."""
+    try:
+        if url.startswith("data:"):
+            header, _, payload = url.partition(",")
+            if "base64" not in header:
+                return None
+            data = base64.b64decode(payload)
+            ext = mimetypes.guess_extension(header[5:].split(";")[0]) or ".png"
+        elif url.startswith("file://"):
+            path = urllib.parse.unquote(url[7:])
+            with open(path, "rb") as fh:
+                data = fh.read()
+            ext = os.path.splitext(path)[1] or ".png"
+        else:
+            resp = session.get(url, timeout=25, headers={"User-Agent": USER_AGENT})
+            resp.raise_for_status()
+            data = resp.content
+            ext = os.path.splitext(urllib.parse.urlparse(url).path)[1]
+            if len(ext) > 5 or not ext:
+                ext = mimetypes.guess_extension(
+                    resp.headers.get("content-type", "").split(";")[0]
+                ) or ".png"
+    except Exception:
+        return None
+
+    if len(data) < 1200:  # tracking pixels and spacers
+        return None
+
+    name = hashlib.sha1(url.encode("utf-8", "ignore")).hexdigest()[:16] + ext
+    path = os.path.join(asset_dir, name)
+    with open(path, "wb") as fh:
+        fh.write(data)
+    return path
+
+
+def _process_images(root: Tag, base_url: str, asset_dir: str,
+                    text_width_mm: float, text_height_mm: float,
+                    warnings: list[str]) -> int:
+    """
+    Download images, drop the junk, wrap survivors in <figure>, and — the part
+    that matters for print — cap each image so it can never be taller than the
+    page's text block. An image that fits on one page cannot be sliced in two.
+    """
+    session = requests.Session()
+    kept = 0
+
+    for img in root.find_all("img"):
+        alt = (img.get("alt") or "").strip()
+        src = _resolve_src(img, base_url)
+
+        if not src:
+            img.decompose()
+            continue
+
+        # Declared dimensions rule out icons before we spend a request on them.
+        try:
+            declared_w = int(float(img.get("width") or 0))
+            declared_h = int(float(img.get("height") or 0))
+        except (TypeError, ValueError):
+            declared_w = declared_h = 0
+        if 0 < declared_w < 150 or 0 < declared_h < 100:
+            img.decompose()
+            continue
+
+        if JUNK_IMAGE_URL.search(src) and not alt:
+            img.decompose()
+            continue
+
+        local = _download_image(src, asset_dir, session)
+        if not local:
+            img.decompose()
+            continue
+
+        width_px = height_px = 0
+        if HAVE_PIL:
+            try:
+                with Image.open(local) as im:
+                    width_px, height_px = im.size
+            except Exception:
+                pass
+
+        # Small images are decoration, no matter what the markup claimed.
+        if width_px and (width_px < 200 or height_px < 130):
+            img.decompose()
+            os.path.exists(local) and os.remove(local)
+            continue
+
+        img.attrs = {"src": "file://" + urllib.parse.quote(os.path.abspath(local))}
+        if alt:
+            img["alt"] = alt
+
+        # Constrain tall images so they always fit within one page's text block.
+        if width_px and height_px:
+            rendered_h = text_width_mm * height_px / width_px
+            if rendered_h > text_height_mm:
+                fitted_w = text_height_mm * width_px / height_px
+                img["style"] = f"width:{fitted_w:.1f}mm;"
+            # Don't upscale a small image to full column width.
+            elif width_px < 700:
+                img["style"] = f"max-width:{min(text_width_mm, width_px * 0.26):.1f}mm;"
+
+        # Every image lives in a figure so break-inside: avoid has something to hold.
+        fig = img.find_parent("figure")
+        if fig is None:
+            fig = BeautifulSoup('<figure class="w2p-figure"></figure>', "html.parser").figure
+            target = img
+            # Lift the image out of any paragraph wrapper first.
+            parent = img.parent
+            if parent is not None and parent.name in ("p", "a") and len(parent.find_all(["img"])) == 1:
+                if not parent.get_text(strip=True):
+                    target = parent
+            target.replace_with(fig)
+            fig.append(img)
+        else:
+            fig["class"] = ["w2p-figure"]
+
+        # Caption: an existing figcaption wins, otherwise a descriptive alt.
+        cap = fig.find("figcaption")
+        if cap is not None:
+            cap.attrs = {}
+            if not cap.get_text(strip=True):
+                cap.decompose()
+                cap = None
+        if cap is None and alt and len(alt) > 25 and not alt.lower().startswith("image"):
+            cap = BeautifulSoup("<figcaption></figcaption>", "html.parser").figcaption
+            cap.string = alt
+            fig.append(cap)
+
+        kept += 1
+
+    if kept == 0 and root.find_all("img"):
+        warnings.append("No usable images found — they may be lazy-loaded by JavaScript.")
+    return kept
+
+
+# --------------------------------------------------------------------------
+# Stage 5 — links
+# --------------------------------------------------------------------------
+
+def _handle_links(root: Tag, base_url: str, mode: str) -> list[tuple[str, str]]:
+    """
+    plain     — links become ordinary text (cleanest for reading on paper)
+    endnotes  — superscript markers plus a numbered list at the end
+    keep      — links stay live and underlined
+    """
+    endnotes: list[tuple[str, str]] = []
+    seen: dict[str, int] = {}
+
+    for a in root.find_all("a"):
+        href = (a.get("href") or "").strip()
+        text = a.get_text(" ", strip=True)
+
+        if not href or href.startswith("#") or not text:
+            a.unwrap()
+            continue
+
+        absolute = urllib.parse.urljoin(base_url, href)
+        if not absolute.startswith(("http://", "https://")):
+            a.unwrap()
+            continue
+
+        if mode == "plain":
+            a.unwrap()
+        elif mode == "endnotes":
+            if absolute in seen:
+                num = seen[absolute]
+            else:
+                num = len(endnotes) + 1
+                seen[absolute] = num
+                endnotes.append((text, absolute))
+            sup = BeautifulSoup(f'<sup class="w2p-ref">{num}</sup>', "html.parser").sup
+            a.insert_after(sup)
+            a.unwrap()
+        else:  # keep
+            a.attrs = {"href": absolute}
+
+    return endnotes
+
+
+# --------------------------------------------------------------------------
+# Metadata
+# --------------------------------------------------------------------------
+
+def _meta(soup: BeautifulSoup, *names: str) -> str:
+    for name in names:
+        tag = soup.find("meta", attrs={"property": name}) or soup.find("meta", attrs={"name": name})
+        if tag and tag.get("content"):
+            return tag["content"].strip()
+    return ""
+
+
+def _extract_title(soup: BeautifulSoup, root: Tag) -> str:
+    title = _meta(soup, "og:title", "twitter:title", "dc.title")
+    if not title:
+        h1 = root.find("h1") or soup.find("h1")
+        if h1:
+            title = h1.get_text(" ", strip=True)
+    if not title and soup.title:
+        title = soup.title.get_text(strip=True)
+    # Trim the "… | The Site Name" suffix.
+    title = re.sub(r"\s*[|–—·\-]\s*[^|–—·\-]{2,40}$", "", title).strip()
+    return title or "Untitled document"
+
+
+def _extract_byline(soup: BeautifulSoup) -> str:
+    author = _meta(soup, "author", "article:author", "og:article:author", "dc.creator", "parsely-author")
+    if not author:
+        node = soup.find(attrs={"rel": "author"}) or soup.find(
+            class_=re.compile(r"(^|[-_\s])(author|byline)([-_\s]|$)", re.I)
+        )
+        if node:
+            author = node.get_text(" ", strip=True)
+    author = re.sub(r"^\s*(by|words by|written by)\s+", "", author, flags=re.I).strip()
+    if author.startswith("http") or len(author) > 90:
+        return ""
+    return author
+
+
+def _extract_date(soup: BeautifulSoup) -> str:
+    raw = _meta(
+        soup, "article:published_time", "og:article:published_time",
+        "datePublished", "publishdate", "date", "dc.date", "parsely-pub-date",
+    )
+    if not raw:
+        t = soup.find("time")
+        if t:
+            raw = t.get("datetime") or t.get_text(strip=True)
+    if not raw:
+        return ""
+    match = re.match(r"(\d{4})-(\d{2})-(\d{2})", raw)
+    if match:
+        months = ["January", "February", "March", "April", "May", "June", "July",
+                  "August", "September", "October", "November", "December"]
+        year, month, day = match.groups()
+        try:
+            return f"{int(day)} {months[int(month) - 1]} {year}"
+        except (IndexError, ValueError):
+            return raw[:40]
+    return raw.strip()[:60]
+
+
+# --------------------------------------------------------------------------
+# Public entry point
+# --------------------------------------------------------------------------
+
+def extract(html: str, base_url: str, asset_dir: str, *,
+            link_mode: str = "plain",
+            text_width_mm: float = 160.0,
+            text_height_mm: float = 195.0,
+            download_images: bool = True) -> Article:
+    """Parse raw HTML into a clean Article. `asset_dir` receives downloaded images."""
+    soup = BeautifulSoup(html, "lxml")
+    art = Article(source_url=base_url if base_url.startswith("http") else "")
+
+    art.site = _meta(soup, "og:site_name", "application-name")
+    if not art.site and base_url.startswith("http"):
+        art.site = urllib.parse.urlparse(base_url).netloc.replace("www.", "")
+    art.byline = _extract_byline(soup)
+    art.published = _extract_date(soup)
+    art.excerpt = _meta(soup, "og:description", "description", "twitter:description")[:400]
+
+    _strip_global(soup)
+    root = _find_content_root(soup)
+    art.title = _extract_title(soup, root)
+
+    # Detach so later operations can't wander back up into the page chrome.
+    root = root.extract()
+    _clean_content(root)
+    _adopt_captions(root)   # must run while class names still exist
+
+    if download_images:
+        art.images = _process_images(
+            root, base_url, asset_dir, text_width_mm, text_height_mm, art.warnings
+        )
+    else:
+        for img in root.find_all("img"):
+            img.decompose()
+
+    art.endnotes = _handle_links(root, base_url, link_mode)
+
+    _simplify_inline(root)
+    _remap_headings(root, art.title)
+    _fix_lists(root)
+    _wrap_tables(root)
+    _promote_text_blocks(root)
+    _drop_empty(root)
+    _strip_attrs(root)
+
+    art.body_html = root.decode_contents()
+    art.word_count = len(root.get_text(" ", strip=True).split())
+
+    if art.word_count < 120:
+        art.warnings.append(
+            "Very little text was recovered — the page may be JavaScript-rendered "
+            "or paywalled. Try saving it from your browser and converting the file."
+        )
+    return art

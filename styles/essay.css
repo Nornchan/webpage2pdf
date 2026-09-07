@@ -1,0 +1,460 @@
+/* ==========================================================================
+   essay.css — A4 academic essay layout for WeasyPrint
+   ==========================================================================
+
+   The rules that actually solve the "saved PDF looks broken" problem all live
+   in the PAGE-BREAK CONTROL section near the bottom. Browsers largely ignore
+   break-inside: avoid when printing; WeasyPrint honours it, which is why a
+   figure here can never be sliced across two pages.
+
+   Sizes are in mm and pt deliberately — this is a paper document, not a screen.
+   -------------------------------------------------------------------------- */
+
+/* --- Page geometry -------------------------------------------------------- */
+
+@page {
+    size: A4;                       /* 210 x 297 mm */
+    margin: 25mm 25mm 22mm 25mm;    /* text block: 160mm wide, ~250mm tall */
+
+    @top-center {
+        content: string(doctitle);
+        font-family: var(--sans);
+        font-size: 8pt;
+        font-style: italic;
+        color: #8a8a8a;
+        margin-bottom: 5mm;
+    }
+
+    @bottom-center {
+        content: counter(page) " of " counter(pages);
+        font-family: var(--sans);
+        font-size: 8.5pt;
+        color: #8a8a8a;
+        margin-top: 5mm;
+    }
+}
+
+/* Page 1 carries the title block, so it needs no running header. */
+@page :first {
+    @top-center { content: none; }
+}
+
+:root {
+    --serif: "Charter", "Bitstream Charter", "Georgia", "Palatino Linotype",
+             "Book Antiqua", "STIX Two Text", "Source Serif Pro",
+             "DejaVu Serif", "Liberation Serif", "Times New Roman", serif;
+    --sans:  "Helvetica Neue", "Inter", "Segoe UI", "Roboto",
+             "DejaVu Sans", "Liberation Sans", Arial, sans-serif;
+    --mono:  "SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono", monospace;
+
+    --ink:      #1a1a1a;
+    --ink-soft: #4a4a4a;
+    --ink-faint:#767676;
+    --rule:     #d4d4d4;
+    --accent:   #2f3f52;
+    --tint:     #f6f5f2;
+}
+
+/* --- Base typography ------------------------------------------------------ */
+
+html {
+    font-family: var(--serif);
+    font-size: 11pt;
+    line-height: 1.62;
+    color: var(--ink);
+    /* Hyphenation keeps justified text from opening rivers of whitespace. */
+    hyphens: auto;
+    -weasy-hyphens: auto;
+    hyphenate-limit-chars: 6 3 3;
+}
+
+body {
+    margin: 0;
+    counter-reset: sec fig;
+}
+
+p {
+    margin: 0;
+    text-align: justify;
+    text-justify: inter-word;
+    orphans: 3;   /* never leave 1-2 lines stranded at a page foot */
+    widows: 3;    /* never carry 1-2 lines alone to the next page */
+}
+
+/* Indented-first-line style: paragraphs after the first in a run are indented
+   rather than spaced, which is what makes a page read as an essay. */
+p + p {
+    text-indent: 1.8em;
+}
+
+h2 + p, h3 + p, h4 + p,
+figure + p, blockquote + p, ul + p, ol + p, pre + p,
+.w2p-lead + p {
+    text-indent: 0;
+    margin-top: 0.85em;
+}
+
+/* --- Title block ---------------------------------------------------------- */
+
+.w2p-titleblock {
+    margin-bottom: 12mm;
+    padding-bottom: 6mm;
+    border-bottom: 0.6pt solid var(--rule);
+}
+
+h1 {
+    string-set: doctitle content(text);
+    font-family: var(--serif);
+    font-size: 21pt;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    margin: 0 0 4mm 0;
+    text-align: left;
+    hyphens: none;
+    break-after: avoid;
+}
+
+.w2p-meta {
+    font-family: var(--sans);
+    font-size: 8.5pt;
+    line-height: 1.5;
+    color: var(--ink-faint);
+}
+
+.w2p-meta .w2p-byline {
+    color: var(--ink-soft);
+    font-weight: 500;
+}
+
+.w2p-meta .w2p-sep {
+    padding: 0 0.5em;
+    color: var(--rule);
+}
+
+.w2p-meta .w2p-url {
+    word-break: break-all;
+    font-size: 7.8pt;
+}
+
+.w2p-standfirst {
+    font-size: 11.5pt;
+    font-style: italic;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin: 5mm 0 0 0;
+    text-align: left;
+    text-indent: 0;
+}
+
+/* --- Headings ------------------------------------------------------------- */
+
+h2, h3, h4 {
+    font-family: var(--serif);
+    color: var(--accent);
+    hyphens: none;
+    text-align: left;
+    /* Stop a heading being printed as the last line on a page. */
+    break-after: avoid;
+    break-inside: avoid;
+}
+
+h2 {
+    font-size: 14pt;
+    font-weight: 600;
+    margin: 9mm 0 3mm 0;
+    padding-bottom: 1.5mm;
+    border-bottom: 0.5pt solid var(--rule);
+    counter-increment: sec;
+    counter-reset: sub;
+}
+
+h3 {
+    font-size: 11.8pt;
+    font-weight: 600;
+    margin: 6.5mm 0 2mm 0;
+    counter-increment: sub;
+}
+
+h4 {
+    font-size: 11pt;
+    font-weight: 600;
+    font-style: italic;
+    margin: 5mm 0 1.5mm 0;
+}
+
+/* Section numbering — switched on by adding .w2p-numbered to <body>. */
+body.w2p-numbered h2::before {
+    content: counter(sec) ".\00a0\00a0";
+    color: var(--ink-faint);
+    font-weight: 500;
+}
+
+body.w2p-numbered h3::before {
+    content: counter(sec) "." counter(sub) "\00a0\00a0";
+    color: var(--ink-faint);
+    font-weight: 500;
+}
+
+/* --- Lists ---------------------------------------------------------------- */
+
+ul, ol {
+    margin: 3mm 0 3mm 0;
+    padding-left: 7mm;
+}
+
+li {
+    margin-bottom: 1.6mm;
+    text-align: left;   /* justified list items look cramped */
+    orphans: 2;
+    widows: 2;
+}
+
+li > ul, li > ol {
+    margin: 1.5mm 0 1mm 0;
+}
+
+ul { list-style-type: disc; }
+ul ul { list-style-type: circle; }
+ol { list-style-type: decimal; }
+
+/* --- Quotations ----------------------------------------------------------- */
+
+blockquote {
+    margin: 5mm 0 5mm 4mm;
+    padding: 0 0 0 5mm;
+    border-left: 1.5pt solid var(--rule);
+    color: var(--ink-soft);
+    font-size: 10.4pt;
+    break-inside: avoid;
+}
+
+blockquote p {
+    text-indent: 0;
+    text-align: left;
+}
+
+blockquote p + p {
+    margin-top: 0.7em;
+}
+
+/* --- Figures and images --------------------------------------------------- */
+
+figure {
+    margin: 6mm 0;
+    text-align: center;
+    /* The core fix: a figure is atomic and moves to the next page whole. */
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+figure img {
+    max-width: 100%;
+    /* Belt and braces — extractor.py already resizes tall images, but this
+       guarantees nothing exceeds the text block height even if that fails. */
+    max-height: 195mm;
+    height: auto;
+    object-fit: contain;
+}
+
+figcaption {
+    font-family: var(--sans);
+    font-size: 8.2pt;
+    line-height: 1.45;
+    color: var(--ink-faint);
+    margin-top: 2.5mm;
+    text-align: center;
+    padding: 0 6mm;
+    break-before: avoid;   /* caption never separates from its image */
+}
+
+body.w2p-numbered figure.w2p-figure figcaption::before {
+    counter-increment: fig;
+    content: "Figure " counter(fig) ". ";
+    font-weight: 600;
+    color: var(--ink-soft);
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* --- Tables --------------------------------------------------------------- */
+
+figure.w2p-table {
+    margin: 6mm 0;
+    /* Small tables stay whole; oversized ones are allowed to break so they
+       don't overflow the page entirely. */
+    break-inside: avoid;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--sans);
+    font-size: 8.8pt;
+    line-height: 1.4;
+}
+
+thead {
+    /* Repeat the header row on every page a long table spans. */
+    display: table-header-group;
+}
+
+th, td {
+    border: 0.4pt solid var(--rule);
+    padding: 1.8mm 2.4mm;
+    text-align: left;
+    vertical-align: top;
+}
+
+th {
+    background: var(--tint);
+    font-weight: 600;
+    color: var(--accent);
+}
+
+tr {
+    break-inside: avoid;   /* a row never splits mid-cell */
+}
+
+/* --- Code ----------------------------------------------------------------- */
+
+pre {
+    font-family: var(--mono);
+    font-size: 8.6pt;
+    line-height: 1.45;
+    background: var(--tint);
+    border: 0.4pt solid var(--rule);
+    border-radius: 1mm;
+    padding: 3mm 4mm;
+    margin: 4mm 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    break-inside: avoid;
+}
+
+code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--tint);
+    padding: 0.1em 0.3em;
+    border-radius: 0.6mm;
+}
+
+pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+}
+
+/* --- Inline elements ------------------------------------------------------ */
+
+strong { font-weight: 600; }
+em     { font-style: italic; }
+
+a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 0.4pt solid var(--rule);
+}
+
+sup.w2p-ref {
+    font-family: var(--sans);
+    font-size: 6.6pt;
+    vertical-align: super;
+    line-height: 0;
+    color: var(--accent);
+    font-weight: 600;
+    padding-left: 0.15em;
+}
+
+hr {
+    border: none;
+    border-top: 0.5pt solid var(--rule);
+    margin: 7mm auto;
+    width: 40%;
+}
+
+/* --- Endnotes ------------------------------------------------------------- */
+
+.w2p-endnotes {
+    margin-top: 10mm;
+    padding-top: 4mm;
+    border-top: 0.6pt solid var(--rule);
+    break-before: auto;
+}
+
+.w2p-endnotes h2 {
+    font-size: 11pt;
+    border: none;
+    margin: 0 0 3mm 0;
+    padding: 0;
+    counter-increment: none;
+}
+
+body.w2p-numbered .w2p-endnotes h2::before { content: none; }
+
+.w2p-endnotes ol {
+    font-family: var(--sans);
+    font-size: 7.8pt;
+    line-height: 1.5;
+    color: var(--ink-faint);
+    padding-left: 6mm;
+}
+
+.w2p-endnotes li {
+    margin-bottom: 1mm;
+    break-inside: avoid;
+}
+
+.w2p-endnotes .w2p-note-url {
+    word-break: break-all;
+    color: var(--ink-faint);
+}
+
+/* --- Colophon ------------------------------------------------------------- */
+
+.w2p-colophon {
+    margin-top: 9mm;
+    padding-top: 3mm;
+    border-top: 0.5pt solid var(--rule);
+    font-family: var(--sans);
+    font-size: 7.4pt;
+    color: #a0a0a0;
+    text-align: left;
+    break-inside: avoid;
+}
+
+/* ==========================================================================
+   PAGE-BREAK CONTROL — the reason this tool exists
+   ==========================================================================
+   Saving from a browser produces images cut in half and headings stranded at
+   the foot of a page because browser print engines treat these as suggestions.
+   WeasyPrint enforces them.
+   -------------------------------------------------------------------------- */
+
+figure, figcaption, blockquote, pre, table tr, .w2p-endnotes li {
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+h1, h2, h3, h4 {
+    break-after: avoid;
+    page-break-after: avoid;
+}
+
+/* Never break immediately after an image — the caption follows it. */
+img { break-after: avoid; }
+
+/* A short list should stay with the sentence that introduces it, and short
+   lists (tagged by the extractor) stay whole rather than splitting 1-and-2. */
+p + ul, p + ol {
+    break-before: avoid;
+}
+
+ul.w2p-tight, ol.w2p-tight {
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
