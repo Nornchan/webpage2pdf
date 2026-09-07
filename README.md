@@ -1,5 +1,7 @@
 # webpage2pdf
 
+[![CI](https://github.com/norachan/webpage2pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/norachan/webpage2pdf/actions/workflows/ci.yml)
+
 Turns web pages into clean A4 PDFs that read like typeset essays instead of screenshots of a website.
 
 Saving a page from your browser keeps the site's screen layout and hands the pagination to a print engine that treats page-break rules as optional. You get sidebars, cookie banners, images sliced across two pages, and headings stranded at the foot of a page. This tool does something different: it works out which part of the page is actually the article, throws the rest away, and re-typesets the content from scratch for paper.
@@ -289,6 +291,7 @@ rm -rf .venv
 ```bash
 ./.venv/bin/python tests/test_robustness.py   # 15 checks, extraction
 ./.venv/bin/python tests/test_pipeline.py     # 32 checks, formats and settings
+./.venv/bin/python tests/test_realworld.py    # 23 checks, real production markup
 ```
 
 `test_robustness.py` is fifteen checks covering unclosed tags, forty-deep div nesting, missing headings, unreachable images, nested tables, GB18030 encoding, mixed CJK/Arabic/Greek text, and empty documents. `tests/messy-page.html` is a realistic fixture — a page wrapped in nav, sidebar, ad slots, share buttons, a newsletter form, comments and a footer — for checking extraction by eye.
@@ -299,3 +302,19 @@ that Markdown keeps its tables, that standalone HTML has no external references,
 that presets produce sane text blocks, that flags beat profiles and profiles beat
 defaults, and that the cache is actually consulted. It isolates itself from your
 own `~/.config/webpage2pdf`.
+
+`test_realworld.py` runs extraction against unmodified, committed snapshots of
+real pages — a Wikipedia article, a Python docs page, and a 1990s-style
+hand-written essay with no semantic tags at all — rather than only hand-written
+synthetic cases. That corpus found four real, silent bugs no synthetic fixture
+happened to reproduce: a page whose own `<html class>` coincidentally matched
+the furniture-stripping regex and destroyed the entire document; a heading
+template that left every section heading with no *sibling* of its own, so it
+was misjudged as empty and deleted; scheme-relative image URLs resolving to a
+broken `file://` address on any locally saved page — silently stripping every
+image, on exactly the workaround this README recommends for JavaScript-rendered
+sites; and an HTML comment carrying internal cache metadata that got promoted
+into visible article text. See
+[`tests/fixtures/real-world/MANIFEST.md`](tests/fixtures/real-world/MANIFEST.md)
+for the full story, sources, and licensing of each snapshot. It runs entirely
+offline against the committed fixtures — no network access, no flakiness.

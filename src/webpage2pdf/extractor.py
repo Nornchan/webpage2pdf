@@ -22,7 +22,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 
 import requests
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 
 try:
     from PIL import Image
@@ -241,8 +241,38 @@ def _kill(elements) -> None:
             el.decompose()
 
 
+def _prose_heavy(el: Tag) -> bool:
+    """
+    True if an element holds enough real prose that a class/id-token match
+    is more likely a coincidence than genuine chrome.
+
+    A short "main-nav" div is furniture. A three-thousand-word article whose
+    ancestor happens to carry a utility class like "main-menu-disabled" — a
+    client-side feature flag, not a menu — is not, and matching on substrings
+    of hyphen-joined class names makes that kind of coincidence common on
+    real sites: MediaWiki's Vector skin puts "vector-toc-available" and
+    "...-main-menu-disabled" on <html> itself, which without this guard
+    matches "toc" and "menu" and deletes the entire document.
+    """
+    return len(el.get_text(strip=True)) > 900 and el.find("p") is not None
+
+
 def _strip_global(soup: BeautifulSoup) -> None:
     _kill(soup.find_all(list(DROP_TAGS)))
+
+    # HTML comments are invisible on the live web and never legitimate
+    # content, but bs4's Comment is a NavigableString subclass — so any later
+    # pass that walks loose text nodes to promote them into paragraphs (see
+    # _promote_text_blocks) treats a comment exactly like real prose. On a
+    # real MediaWiki page this turned an internal cache-key comment
+    # ("<!-- Post-processing cache key enwiki:postproc-parsoid-pcache:... -->")
+    # into a genuine, visible <p> in the rendered PDF, and inflated the
+    # reported word count with debug text nobody wrote and nobody sees on the
+    # actual site. Removing every comment here, before any later pass can
+    # mistake one for prose, closes the whole class of bug rather than one
+    # call site.
+    for comment in soup.find_all(string=lambda s: isinstance(s, Comment)):
+        comment.extract()
 
     for el in soup.find_all(attrs={"aria-hidden": "true"}):
         # aria-hidden on a big text container is usually a duplicated mobile view.
@@ -260,7 +290,14 @@ def _strip_global(soup: BeautifulSoup) -> None:
             el.decompose()
 
     for el in soup.find_all(True):
-        if _matches(el, STRUCTURAL_JUNK):
+        if _gone(el):
+            continue
+        # <html> and <body> are the document's own roots, never a genuine nav
+        # bar or cookie banner — a class-token match here is always a false
+        # positive, and decomposing either one destroys the whole document.
+        if el.name in ("html", "body"):
+            continue
+        if _matches(el, STRUCTURAL_JUNK) and not _prose_heavy(el):
             el.decompose()
 
     _kill(soup.find_all(style=re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.I)))
@@ -346,7 +383,7 @@ def _clean_content(root: Tag) -> None:
         if _matches(el, INLINE_JUNK):
             # A heading inside means we probably matched a real section name
             # like "Related concepts" in an explainer; keep it if it's prose-heavy.
-            if len(el.get_text(strip=True)) > 900 and el.find(["p"]):
+            if _prose_heavy(el):
                 continue
             el.decompose()
 
@@ -593,9 +630,17 @@ def _remap_headings(root: Tag, title: str) -> None:
         new_level = int(h.name[1]) - shift
         h.name = "h" + str(max(2, min(4, new_level)))  # clamp to h2-h4
 
-    # A heading with nothing under it is a label, not a section.
+    # A heading with nothing under it is a label, not a section. This must
+    # walk the whole document in tree order (find_next), not just the
+    # heading's own siblings (find_next_sibling): several real site templates
+    # — MediaWiki's Vector 2022 skin among them — wrap each heading alone in
+    # its own <div class="mw-heading">, so once that div's other child (an
+    # edit-section link) is stripped as chrome, the heading has no sibling of
+    # its own even though the section's paragraphs immediately follow the
+    # wrapper div. find_next_sibling() misjudged every one of those headings
+    # as an empty label and deleted the entire section structure.
     for h in root.find_all(["h2", "h3", "h4"]):
-        if h.find_next_sibling() is None:
+        if h.find_next(True) is None:
             h.decompose()
 
 
@@ -662,6 +707,26 @@ def _wrap_tables(root: Tag) -> None:
 # Stage 4 — images
 # --------------------------------------------------------------------------
 
+def _resolve_url(base_url: str, candidate: str) -> str:
+    """
+    urljoin(), except a scheme-relative reference always resolves to https.
+
+    A URL like "//upload.wikimedia.org/..." is scheme-relative: on the live
+    web it inherits whatever scheme served the containing page, which for
+    anything this tool processes is always http or https. Plain urljoin()
+    instead inherits the scheme of `base_url` literally — and base_url is
+    "file:///path/to/saved.html" for every locally saved page, which is the
+    normal, recommended way to convert a JavaScript-rendered or paywalled
+    article (see the README). That turns "//upload.wikimedia.org/x.jpg" into
+    "file://upload.wikimedia.org/x.jpg": a file:// URL with a bogus host
+    component, which _download_image then fails to open as a local path and
+    silently drops — stripping every image from the page with no warning.
+    """
+    if candidate.startswith("//"):
+        return "https:" + candidate
+    return urllib.parse.urljoin(base_url, candidate)
+
+
 def _best_from_srcset(srcset: str) -> str | None:
     """Pick the highest-resolution candidate so print output stays sharp."""
     best_url, best_weight = None, -1.0
@@ -706,7 +771,7 @@ def _resolve_src(img: Tag, base_url: str) -> str | None:
             continue
         if cand.startswith("data:"):
             return cand
-        return urllib.parse.urljoin(base_url, cand)
+        return _resolve_url(base_url, cand)
     return None
 
 
@@ -892,7 +957,7 @@ def _handle_links(root: Tag, base_url: str, mode: str) -> list[tuple[str, str]]:
             a.unwrap()
             continue
 
-        absolute = urllib.parse.urljoin(base_url, href)
+        absolute = _resolve_url(base_url, href)
         if not absolute.startswith(("http://", "https://")):
             a.unwrap()
             continue
