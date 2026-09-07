@@ -371,6 +371,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         job = payload.get("job") or {}
         opts = payload.get("options") or {}
         scratch = None
+        staging = None
 
         try:
             if job.get("kind") == "inline":
@@ -392,7 +393,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         )
 
             os.makedirs(OUTPUT_DIR, exist_ok=True)
-            staging = os.path.join(OUTPUT_DIR, ".w2p-staging.pdf")
+            # Unique per request: this is a threading server, so a single
+            # fixed staging name means two simultaneous conversions overwrite
+            # each other's half-written file.
+            staging = converter.staging_path(OUTPUT_DIR)
 
             result = converter.convert(
                 source, staging,
@@ -403,15 +407,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 images=bool(opts.get("images", True)),
             )
 
-            final_name = converter.suggest_filename(result.title)
-            final_path = os.path.join(OUTPUT_DIR, final_name)
-            if os.path.exists(final_path):
-                stem, ext = os.path.splitext(final_path)
-                n = 2
-                while os.path.exists(f"{stem}-{n}{ext}"):
-                    n += 1
-                final_path = f"{stem}-{n}{ext}"
-                final_name = os.path.basename(final_path)
+            final_path = converter.claim_output_path(
+                os.path.join(OUTPUT_DIR, converter.suggest_filename(result.title))
+            )
+            final_name = os.path.basename(final_path)
             os.replace(staging, final_path)
 
             self._json(200, {
@@ -430,6 +429,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         finally:
             if scratch and os.path.exists(scratch):
                 os.remove(scratch)
+            if staging and os.path.exists(staging):
+                os.remove(staging)
 
 
 class ThreadedServer(socketserver.ThreadingMixIn, http.server.HTTPServer):

@@ -21,8 +21,10 @@ If you'd rather do it by hand:
 ```bash
 brew install pango
 python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
+./.venv/bin/python -m pip install -e .
 ```
+
+That puts three commands on your path: `webpage2pdf`, its short alias `w2p`, and `webpage2pdf-server`.
 
 ---
 
@@ -31,26 +33,28 @@ python3 -m venv .venv
 ### The web app
 
 ```bash
-./.venv/bin/python server.py
+webpage2pdf-server
 ```
 
-Opens `http://127.0.0.1:8765`. Paste links or file paths one per line, or drop saved `.html` files onto the page. Finished PDFs land in `converted-pdfs/` and download with one click. Nothing is uploaded anywhere — the server runs on your machine and is not reachable from the network.
+Opens `http://127.0.0.1:8765`. Paste links or file paths one per line, or drop saved `.html` files onto the page. Finished PDFs land in `~/Documents/webpage2pdf` (override with `-o`) and download with one click. Nothing is uploaded anywhere — the server runs on your machine and is not reachable from the network.
 
 ### The command line
 
 ```bash
 # a single page
-python3 html2pdf.py https://example.com/some-essay
+webpage2pdf https://example.com/some-essay
 
 # a saved file, named output
-python3 html2pdf.py saved-page.html -o reading/week-03.pdf
+webpage2pdf saved-page.html -o reading/week-03.pdf
 
 # a batch into one folder, filenames taken from article titles
-python3 html2pdf.py url1 url2 saved.html -d reading/
+w2p url1 url2 saved.html -d reading/
 
 # a week's reading list from a text file
-python3 html2pdf.py --from-list links.txt -d reading/
+w2p --from-list links.txt -d reading/
 ```
+
+`w2p` is a shorter alias for `webpage2pdf`; the two are identical. From a source checkout without installing, `python3 -m webpage2pdf` works too.
 
 | Option | Effect |
 |---|---|
@@ -62,6 +66,8 @@ python3 html2pdf.py --from-list links.txt -d reading/
 | `--no-images` | Text only — much smaller files |
 | `--no-url` / `--no-standfirst` | Trim the title block |
 | `--keep-html FILE` | Also save the cleaned HTML, useful for checking what was removed |
+| `-V`, `--version` | Print the version and exit |
+| `--doctor` | Check the installation and report what is wrong |
 
 ---
 
@@ -87,7 +93,7 @@ Browsers largely ignore `break-inside: avoid` when printing. WeasyPrint enforces
 
 ## Adjusting the look
 
-Everything visual lives in `styles/essay.css`. Common edits:
+Everything visual lives in `src/webpage2pdf/styles/essay.css`. Common edits:
 
 | Change | Where |
 |---|---|
@@ -97,9 +103,11 @@ Everything visual lives in `styles/essay.css`. Common edits:
 | Ragged-right instead of justified | `p { text-align: left }` |
 | No first-line indents | delete the `p + p { text-indent }` rule |
 
-Copy the file to `styles/handout.css`, edit it, and it appears automatically as `--style handout` and in the web app's dropdown.
+Copy the file to `src/webpage2pdf/styles/handout.css`, edit it, and it appears automatically as `--style handout` and in the web app's dropdown.
 
-**If you change the page margins,** update `TEXT_WIDTH_MM` and `TEXT_HEIGHT_MM` in `converter.py` to match, since those are what the image fitting is calculated against.
+**If you change the page margins,** update the geometry constants at the top of `converter.py`, which is what image fitting is measured against.
+
+One trap worth knowing: `TEXT_HEIGHT_MM` is **not** the height of the text block. The block is 250mm (297 − 25 − 22), but the constant is 195mm. The 55mm difference is deliberate headroom. An image is never alone on the page — it carries a caption, and a figure is atomic, so a 250mm-tall image plus a caption makes a figure taller than any page can hold, which forces exactly the split this tool exists to prevent. Change `MARGIN_TOP_MM` / `MARGIN_BOTTOM_MM` to match your new `@page` rule and leave `CAPTION_HEADROOM_MM` alone; `TEXT_HEIGHT_MM` is derived from them.
 
 ---
 
@@ -108,7 +116,7 @@ Copy the file to `styles/handout.css`, edit it, and it appears automatically as 
 Start here — it checks the interpreter, the native libraries and every package, then tells you the exact fix:
 
 ```bash
-./.venv/bin/python html2pdf.py --doctor
+webpage2pdf --doctor
 ```
 
 ### `OSError: cannot load library 'libpango-1.0-0'`
@@ -123,11 +131,11 @@ If you still hit it, rebuild the venv from Homebrew's Python rather than Anacond
 
 ```bash
 brew install python pango
-cd ~/Documents/webpage2pdf
+cd /path/to/webpage2pdf
 rm -rf .venv
 /opt/homebrew/bin/python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
-./.venv/bin/python html2pdf.py --doctor
+./.venv/bin/python -m pip install -e .
+./.venv/bin/webpage2pdf --doctor
 ```
 
 **Don't** build the venv from `/usr/bin/python3`. Apple's Python is protected by SIP, which strips `DYLD_FALLBACK_LIBRARY_PATH` at launch — the usual fix silently does nothing.
@@ -136,9 +144,9 @@ rm -rf .venv
 
 | Symptom | Cause and fix |
 |---|---|
-| `ModuleNotFoundError: weasyprint` | Using system `python3` instead of the venv. Use `./.venv/bin/python`. |
-| `Unknown style 'essay'` | `styles/` folder missing — re-unzip, keeping the structure intact. |
-| `Could not start on port 8765` | Port in use: `python3 server.py --port 8766`. |
+| `ModuleNotFoundError: weasyprint` | Using system `python3` instead of the venv. Use `./.venv/bin/webpage2pdf`. |
+| `Unknown style 'essay'` | Stylesheets did not install. Reinstall with `pip install -e .`. |
+| `Could not start on port 8765` | Port in use: `webpage2pdf-server --port 8766`. |
 | Output is nearly empty, with a warning | JavaScript-rendered or paywalled page. Save it from your browser and convert the file. |
 | Boxes instead of Chinese/Japanese text | Missing CJK fonts: `brew install --cask font-noto-serif-cjk-sc`. |
 
@@ -151,7 +159,7 @@ rm -rf .venv
 ## Tests
 
 ```bash
-python3 tests/test_robustness.py
+./.venv/bin/python tests/test_robustness.py
 ```
 
 Fifteen checks covering unclosed tags, forty-deep div nesting, missing headings, unreachable images, nested tables, GB18030 encoding, mixed CJK/Arabic/Greek text, and empty documents. `tests/messy-page.html` is a realistic fixture — a page wrapped in nav, sidebar, ad slots, share buttons, a newsletter form, comments and a footer — for checking extraction by eye.

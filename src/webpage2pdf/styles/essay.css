@@ -88,8 +88,7 @@ p + p {
 }
 
 h2 + p, h3 + p, h4 + p,
-figure + p, blockquote + p, ul + p, ol + p, pre + p,
-.w2p-lead + p {
+figure + p, blockquote + p, ul + p, ol + p, pre + p {
     text-indent: 0;
     margin-top: 0.85em;
 }
@@ -251,7 +250,10 @@ figure {
 figure img {
     max-width: 100%;
     /* Belt and braces — extractor.py already resizes tall images, but this
-       guarantees nothing exceeds the text block height even if that fails. */
+       guarantees nothing exceeds the text block height even if that fails.
+       Must equal converter.TEXT_HEIGHT_MM. That is 195mm, not the full 250mm
+       text block, so a full-height image still leaves room for its caption
+       inside the same unbreakable figure. */
     max-height: 195mm;
     height: auto;
     object-fit: contain;

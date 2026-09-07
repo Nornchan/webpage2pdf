@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 import urllib.parse
 from dataclasses import dataclass
 from datetime import date
@@ -38,10 +39,30 @@ from .extractor import Article  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 STYLE_DIR = os.path.join(HERE, "styles")
 
-# A4 text block with the 25mm margins set in essay.css. The extractor uses these
-# to guarantee no image is ever taller than one page.
+# The box an image must fit inside, in millimetres.
+#
+# TEXT_WIDTH_MM is the real text measure: A4 is 210mm wide and essay.css sets
+# 25mm side margins, so 210 - 25 - 25 = 160.
+#
+# TEXT_HEIGHT_MM is deliberately NOT the full text block. That block is
+# 297 - 25 (top) - 22 (bottom) = 250mm, but an image is never alone on the page:
+# it carries a caption, and a figure is atomic (break-inside: avoid), so a
+# 250mm-tall image plus a caption produces a figure taller than any page can
+# hold — which forces exactly the split this tool exists to prevent. The 55mm of
+# slack is headroom for the caption and a line or two of surrounding text.
+#
+# If you change the margins in essay.css, change TEXT_WIDTH_MM to match the new
+# measure, but keep the slack in TEXT_HEIGHT_MM rather than setting it to the
+# full block height.
+PAGE_HEIGHT_MM = 297.0          # A4
+MARGIN_TOP_MM = 25.0            # must match @page in essay.css
+MARGIN_BOTTOM_MM = 22.0         # must match @page in essay.css
+CAPTION_HEADROOM_MM = 55.0      # room for a caption under a full-height image
+
 TEXT_WIDTH_MM = 160.0
-TEXT_HEIGHT_MM = 195.0
+TEXT_HEIGHT_MM = (
+    PAGE_HEIGHT_MM - MARGIN_TOP_MM - MARGIN_BOTTOM_MM - CAPTION_HEADROOM_MM
+)
 
 
 @dataclass
@@ -102,9 +123,27 @@ def _build_document(art: Article, *, numbered: bool, show_url: bool,
 
     body_class = "w2p-numbered" if numbered else ""
 
+    # WeasyPrint maps these straight onto PDF document metadata: author, subject,
+    # keywords and creation date. Without them the PDF lands in a library or a
+    # reference manager with an empty Author field, even though we parsed one.
+    meta_tags = ['<meta charset="utf-8">']
+    if art.byline:
+        meta_tags.append(f'<meta name="author" content="{_esc(art.byline)}">')
+    if art.excerpt:
+        meta_tags.append(f'<meta name="description" content="{_esc(art.excerpt[:300])}">')
+    if art.site:
+        meta_tags.append(f'<meta name="keywords" content="{_esc(art.site)}">')
+    meta_tags.append(
+        f'<meta name="dcterms.created" content="{date.today():%Y-%m-%d}">'
+    )
+    head = "".join(meta_tags)
+
+    # lang drives hyphenation: WeasyPrint selects its dictionary from this
+    # attribute, so a wrong value hyphenates the text with another language's
+    # patterns. See extractor._extract_lang.
     return f"""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>{_esc(art.title)}</title></head>
+<html lang="{_esc(art.lang or 'en')}">
+<head>{head}<title>{_esc(art.title)}</title></head>
 <body class="{body_class}">
 <header class="w2p-titleblock">
   <h1>{_esc(art.title)}</h1>
@@ -187,6 +226,48 @@ def convert(source: str, output_path: str, *,
         )
     finally:
         shutil.rmtree(asset_dir, ignore_errors=True)
+
+
+def staging_path(directory: str) -> str:
+    """
+    A scratch path to render into before the article title is known.
+
+    Unique per process *and* per thread: the CLI can be run twice against the
+    same -d directory, and server.py is a ThreadingMixIn server that handles
+    concurrent requests, so a single fixed name means one conversion silently
+    overwrites another's half-written file.
+    """
+    return os.path.join(
+        directory, f".w2p-staging-{os.getpid()}-{threading.get_ident():x}.pdf"
+    )
+
+
+def claim_output_path(preferred: str) -> str:
+    """
+    Reserve `preferred`, or the next free `name-2.pdf`, `name-3.pdf`, …
+
+    Atomic on purpose. The obvious version —
+
+        if os.path.exists(final):
+            ... find a free suffix ...
+        os.replace(tmp, final)
+
+    is a time-of-check/time-of-use race: two conversions finishing together both
+    see the name as free and both rename onto it, so one result vanishes. Here
+    the name is claimed with O_CREAT|O_EXCL, which either succeeds for exactly
+    one caller or raises, and the caller then renames over its own placeholder.
+    """
+    stem, ext = os.path.splitext(preferred)
+    for n in range(1, 1000):
+        candidate = preferred if n == 1 else f"{stem}-{n}{ext}"
+        try:
+            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            continue
+        os.close(fd)
+        return candidate
+    # Nearly a thousand documents share this title; stop being clever.
+    raise FileExistsError(f"Could not find a free filename near {preferred}")
 
 
 def suggest_filename(title: str, fallback: str = "document") -> str:

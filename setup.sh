@@ -54,16 +54,18 @@ echo "→ Creating a virtual environment in .venv…"
 rm -rf .venv
 "$PYTHON" -m venv .venv
 
-echo "→ Installing Python packages…"
-./.venv/bin/pip install --upgrade pip --quiet
-./.venv/bin/pip install -r requirements.txt --quiet
+echo "→ Installing webpage2pdf and its dependencies…"
+# `python -m pip`, not `./.venv/bin/pip`: a venv that has been moved still has
+# a working python symlink but stale absolute shebangs in its scripts.
+./.venv/bin/python -m pip install --upgrade pip --quiet
+./.venv/bin/python -m pip install -e . --quiet
 
 # Belt and braces: _bootstrap.py sets this at runtime too, but exporting it here
 # means the verification below tests the same conditions the tool will run under.
 export DYLD_FALLBACK_LIBRARY_PATH="$BREW_PREFIX/lib:${DYLD_FALLBACK_LIBRARY_PATH:-$HOME/lib:/usr/local/lib:/lib:/usr/lib}"
 
 echo "→ Verifying…"
-if ./.venv/bin/python html2pdf.py --doctor; then
+if ./.venv/bin/webpage2pdf --doctor; then
   :
 else
   echo "Setup finished, but the check above found a problem."
@@ -71,20 +73,22 @@ else
 fi
 
 echo "→ Running a real conversion as a final test…"
-./.venv/bin/python html2pdf.py tests/messy-page.html -o /tmp/webpage2pdf-selftest.pdf --quiet \
+./.venv/bin/webpage2pdf tests/messy-page.html -o /tmp/webpage2pdf-selftest.pdf --quiet \
   && echo "   Wrote /tmp/webpage2pdf-selftest.pdf"
 
 cat <<DONE
 
 Setup complete.
 
-  Web app:      ./.venv/bin/python server.py
-  Command line: ./.venv/bin/python html2pdf.py <url-or-file>
-  Troubleshoot: ./.venv/bin/python html2pdf.py --doctor
+  Web app:      ./.venv/bin/webpage2pdf-server
+  Command line: ./.venv/bin/webpage2pdf <url-or-file>
+  Troubleshoot: ./.venv/bin/webpage2pdf --doctor
 
-Optional shortcut, so you can type \`topdf <url>\` from anywhere:
+To use it from anywhere, put the venv's bin directory on your PATH:
 
-  echo "alias topdf=\\"'$(pwd)/.venv/bin/python' '$(pwd)/html2pdf.py'\\"" >> ~/.zshrc
+  echo 'export PATH="$(pwd)/.venv/bin:$PATH"' >> ~/.zshrc
   source ~/.zshrc
+
+Then \`webpage2pdf <url>\` and the shorter \`w2p <url>\` both work.
 
 DONE

@@ -136,6 +136,7 @@ class Article:
     byline: str = ""
     published: str = ""
     site: str = ""
+    lang: str = "en"   # BCP-47; drives WeasyPrint's hyphenation dictionary
     source_url: str = ""
     excerpt: str = ""
     body_html: str = ""
@@ -843,6 +844,52 @@ def _meta(soup: BeautifulSoup, *names: str) -> str:
     return ""
 
 
+# Languages WeasyPrint (via Pyphen) has hyphenation dictionaries for. Claiming
+# a language with no dictionary is harmless — hyphenation simply switches off —
+# but claiming the *wrong* one is not, so we only trust an explicit declaration.
+def _extract_lang(soup: BeautifulSoup) -> str:
+    """
+    Work out the document language, because hyphenation depends on it.
+
+    WeasyPrint picks a hyphenation dictionary from the `lang` attribute. The
+    document used to be hardcoded to lang="en", which meant a German or French
+    article was hyphenated with English patterns — breaking words mid-morpheme
+    throughout justified text. Wrong hyphenation is far more visible than none.
+    """
+    candidates = []
+
+    html_tag = soup.find("html")
+    if html_tag:
+        candidates.append(html_tag.get("lang") or html_tag.get("xml:lang") or "")
+
+    # og:locale is "en_GB" style; Content-Language may be a comma-separated list.
+    candidates.append(_meta(soup, "og:locale", "dc.language", "language"))
+
+    http_equiv = soup.find("meta", attrs={"http-equiv": re.compile(r"^content-language$", re.I)})
+    if http_equiv and http_equiv.get("content"):
+        candidates.append(http_equiv["content"])
+
+    for raw in candidates:
+        tag = _normalise_lang(raw)
+        if tag:
+            return tag
+
+    return "en"
+
+
+def _normalise_lang(raw: str) -> str:
+    """'en_GB' / 'de-DE, en' / '  FR  ' -> 'en-gb' / 'de-de' / 'fr'. '' if unusable."""
+    if not raw:
+        return ""
+    first = re.split(r"[,;]", raw.strip())[0].strip().replace("_", "-").lower()
+    if not re.fullmatch(r"[a-z]{2,3}(-[a-z0-9]{2,8})*", first):
+        return ""
+    # A bare "x-default" or similarly meaningless tag is worse than the fallback.
+    if first.startswith("x-"):
+        return ""
+    return first
+
+
 def _extract_title(soup: BeautifulSoup, root: Tag) -> str:
     title = _meta(soup, "og:title", "twitter:title", "dc.title")
     if not title:
@@ -909,6 +956,7 @@ def extract(html: str, base_url: str, asset_dir: str, *,
     art.site = _meta(soup, "og:site_name", "application-name")
     if not art.site and base_url.startswith("http"):
         art.site = urllib.parse.urlparse(base_url).netloc.replace("www.", "")
+    art.lang = _extract_lang(soup)
     art.byline = _extract_byline(soup)
     art.published = _extract_date(soup)
     art.excerpt = _meta(soup, "og:description", "description", "twitter:description")[:400]

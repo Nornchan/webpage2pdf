@@ -126,7 +126,9 @@ def main(argv: list[str] | None = None) -> int:
                 out_path = args.output
             else:
                 # Convert once to learn the title, then name the file after it.
-                out_path = os.path.join(args.dir, "__w2p_tmp__.pdf")
+                # The staging name carries the pid so two runs writing into the
+                # same -d directory cannot overwrite each other's work.
+                out_path = converter.staging_path(args.dir)
 
             result = converter.convert(
                 source, out_path,
@@ -141,15 +143,11 @@ def main(argv: list[str] | None = None) -> int:
             )
 
             if not args.output:
-                final = os.path.join(args.dir, converter.suggest_filename(result.title))
-                if os.path.abspath(final) != os.path.abspath(out_path):
-                    if os.path.exists(final):
-                        stem, ext = os.path.splitext(final)
-                        n = 2
-                        while os.path.exists(f"{stem}-{n}{ext}"):
-                            n += 1
-                        final = f"{stem}-{n}{ext}"
-                    os.replace(out_path, final)
+                preferred = os.path.join(
+                    args.dir, converter.suggest_filename(result.title)
+                )
+                final = converter.claim_output_path(preferred)
+                os.replace(out_path, final)
                 result.pdf_path = os.path.abspath(final)
 
             if not args.quiet:
@@ -166,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             failures += 1
             print(f"  {RED}✗ {type(exc).__name__}: {exc}{OFF}", file=sys.stderr)
-            tmp = os.path.join(args.dir, "__w2p_tmp__.pdf")
+            tmp = converter.staging_path(args.dir)
             if os.path.exists(tmp):
                 os.remove(tmp)
 
