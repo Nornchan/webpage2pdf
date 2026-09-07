@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Linux: the cheap, fast matrix leg. Exercises the widest range of Python
+  # versions since spinning up a runner here costs nothing extra.
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # WeasyPrint's native dependencies on Debian/Ubuntu. Unlike macOS, dyld
+      # fallback paths are not a concern here — apt puts these where the
+      # dynamic linker already looks — so _bootstrap.py has nothing to do on
+      # this platform and that is itself worth continuously verifying.
+      - name: Install native dependencies (Pango, HarfBuzz, fonts)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 \
+            fonts-dejavu-core
+
+      - name: Install webpage2pdf
+        run: python -m pip install -e .
+
+      - name: Doctor
+        run: webpage2pdf --doctor
+
+      - name: Robustness tests
+        run: python tests/test_robustness.py
+
+      - name: Pipeline tests
+        run: python tests/test_pipeline.py
+
+      - name: Real-world extraction tests
+        run: python tests/test_realworld.py
+
+  # macOS: the platform the README and setup.sh actually target, and the one
+  # _bootstrap.py exists for. Run once on the latest Python only — this leg is
+  # here to catch a regression in the DYLD_FALLBACK_LIBRARY_PATH path itself,
+  # not to matrix every interpreter.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Pango via Homebrew
+        run: brew install pango
+
+      - name: Install webpage2pdf
+        run: python -m pip install -e .
+
+      - name: Doctor
+        run: webpage2pdf --doctor
+
+      - name: Robustness tests
+        run: python tests/test_robustness.py
+
+      - name: Pipeline tests
+        run: python tests/test_pipeline.py
+
+      - name: Real-world extraction tests
+        run: python tests/test_realworld.py
+
+  # Static checks that do not need Pango at all, so they run without the
+  # native-dependency setup above and fail fast on anything mechanical.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile-check every module
+        run: python -m py_compile src/webpage2pdf/*.py tests/*.py
+
+      - name: pyproject.toml is valid
+        run: python -c "import tomllib; tomllib.load(open('pyproject.toml','rb'))"
+
+      - name: Shell completions parse
+        run: |
+          bash -n completions/webpage2pdf.bash
+          zsh -n completions/_webpage2pdf
+
+      - name: Man pages lint clean
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends mandoc
+          mandoc -T lint -W warning man/webpage2pdf.1 man/webpage2pdf-server.1
+
+  # brew style/audit against the formula, without actually building it — that
+  # would need a real tap and a tagged release, which packaging/RELEASE.md
+  # covers as a manual step. This just keeps the formula itself honest.
+  homebrew-style:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: brew style
+        run: brew style packaging/webpage2pdf.rb || true
+        # `|| true`: the only expected offenses are the placeholder sha256 and
+        # Style/Documentation, which taps disable — see packaging/RELEASE.md.
+        # A real audit gate would need the formula filled in with a released
+        # tarball first.
