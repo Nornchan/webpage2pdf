@@ -26,6 +26,7 @@ _bootstrap.ensure_native_libs()
 
 try:
     from weasyprint import HTML, CSS
+    from weasyprint.text.fonts import FontConfiguration
 except OSError as exc:  # native libraries missing or unreachable
     raise SystemExit(
         f"\nWeasyPrint could not load its native libraries.\n  {exc}\n\n"
@@ -211,8 +212,21 @@ def convert(source: str, output_path: str, *,
 
         os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
 
+        # One FontConfiguration, shared by the stylesheet and the render.
+        #
+        # This is not optional bookkeeping. @font-face rules are collected into
+        # the FontConfiguration when the stylesheet is parsed and read back when
+        # the document is laid out. Pass it to only one of the two — or, as this
+        # did before, to neither — and every @font-face is parsed, silently
+        # discarded, and the text falls back to whatever fontconfig considers
+        # the closest match. There is no warning: the PDF renders happily in the
+        # wrong typeface. On this machine an unknown family resolves to Verdana,
+        # so a bundled serif would have come out as a system sans.
+        font_config = FontConfiguration()
+
         doc = HTML(string=document_html, base_url=asset_dir + os.sep).render(
-            stylesheets=[CSS(filename=css_path)]
+            stylesheets=[CSS(filename=css_path, font_config=font_config)],
+            font_config=font_config,
         )
         doc.write_pdf(output_path)
 
