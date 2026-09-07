@@ -76,6 +76,10 @@ w2p --from-list links.txt -d reading/
 | `--no-images` | Text only — much smaller files |
 | `--no-url` / `--no-standfirst` | Trim the title block |
 | `--keep-html FILE` | Also save the cleaned HTML, useful for checking what was removed |
+| `--preset NAME` | Page geometry: `a4`, `letter`, `a5`, `book`, `remarkable`, `two-column` |
+| `--toc` / `--no-toc` | Force or suppress the contents list (otherwise automatic) |
+| `--open` | Open each finished PDF in the default viewer |
+| `--list-presets` | Show available page presets and exit |
 | `-V`, `--version` | Print the version and exit |
 | `--doctor` | Check the installation and report what is wrong |
 
@@ -93,7 +97,18 @@ Also handled: tables of contents, "edit" permalinks glued to headings, citation 
 
 **4. Fixes the images.** Lazy-loaded sources are recovered from `data-src`, `data-original` and friends; `srcset` resolves to the highest-resolution candidate so print stays sharp. Tracking pixels, spacers and icons are dropped on size. Then the important part: **any image tall enough to overflow the text block is scaled down so it fits within a single page.** A 900×2400 diagram becomes 73mm wide rather than being cut in half.
 
-**5. Typesets it.** A4, 25mm margins, serif body, justified with hyphenation, first-line indents, running header with the article title, page numbers, numbered sections and figures.
+**5. Typesets it.** A4 by default, in bundled Literata — old-style figures in running text, lining tabular figures in tables, justified with hyphenation in the source page's own language, first-line indents. Running heads carry the article title on the left and the current section on the right. Documents with at least four sections and 1500 words get a contents list whose page numbers come from CSS `target-counter`, so they stay correct without a second render.
+
+`--preset` changes the page geometry, and it drives both the stylesheet and the image fitting from one set of numbers:
+
+| Preset | Page | For |
+|---|---|---|
+| `a4` | 210×297mm | The default |
+| `letter` | 215.9×279.4mm | US paper |
+| `a5` | 148×210mm | Half of A4, one-handed |
+| `book` | 152.4×228.6mm | 6×9in trim, facing pages with mirrored margins, for binding |
+| `remarkable` | 157×210mm | reMarkable 2 e-ink, narrow margins to use the glass |
+| `two-column` | 210×297mm | Dense reference material |
 
 ### Why images stop breaking
 

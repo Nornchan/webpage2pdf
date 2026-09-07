@@ -24,6 +24,7 @@ import webbrowser
 
 from . import __version__
 from . import converter
+from . import presets
 
 DEFAULT_PORT = 8765
 
@@ -337,6 +338,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif route == "/api/info":
             self._json(200, {
                 "styles": converter.available_styles(),
+                "presets": [
+                    {"name": n, "description": presets.get(n).description}
+                    for n in presets.names()
+                ],
                 "output_dir": OUTPUT_DIR,
             })
 
@@ -405,6 +410,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 link_mode=opts.get("links", "plain"),
                 show_url=bool(opts.get("show_url", True)),
                 images=bool(opts.get("images", True)),
+                toc=opts.get("toc"),
+                preset=opts.get("preset", presets.DEFAULT_PRESET),
             )
 
             final_path = converter.claim_output_path(

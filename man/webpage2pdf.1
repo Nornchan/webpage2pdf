@@ -42,6 +42,24 @@ Read sources from a text file, one per line. Lines beginning with
 .B #
 are comments.
 .TP
+.BR \-\-preset " \fINAME\fR"
+Page geometry:
+.BR a4 " (default), " letter ", " a5 ", " book ", " remarkable ", " two-column .
+A preset drives both the stylesheet and the image fitting from one set of
+numbers, so an image that fits a single page on A4 also fits one on A5.
+.B book
+mirrors its inner and outer margins across facing pages, for double-sided
+printing or binding. See
+.BR \-\-list\-presets .
+.TP
+.BR \-\-toc ", " \-\-no\-toc
+Force or suppress the contents list. By default one appears when the document
+has at least four top-level sections and 1500 words. Page numbers are resolved
+by the layout engine, so they stay correct however long the list itself is.
+.TP
+.B \-\-open
+Open each finished PDF in the default viewer.
+.TP
 .BR \-\-style " \fINAME\fR"
 Stylesheet to typeset with. See
 .BR \-\-list\-styles .
@@ -79,6 +97,9 @@ Network timeout per request. Default: 30.
 .B \-\-list\-styles
 Print available stylesheet names and exit.
 .TP
+.B \-\-list\-presets
+Print available page presets and exit.
+.TP
 .B \-\-doctor
 Check the interpreter, native libraries and every Python package, then report
 the exact fix for anything missing. Works even when the PDF engine cannot load.
@@ -102,7 +123,11 @@ A batch, named from article titles:
 A week's reading list, with links collected as endnotes:
 .B w2p \-\-from\-list links.txt \-d reading/ \-\-links endnotes
 .SH TYPOGRAPHY
-Output is A4 with 25mm margins, a serif body justified with hyphenation, and
+Output is A4 by default \(em see
+.B \-\-preset
+for other geometries \(em set in Literata, bundled with the tool so that the
+same page produces the same document on every machine. Old\-style figures in
+running text, lining tabular figures in tables, justified with hyphenation, and
 first\-line indents. The hyphenation dictionary is chosen from the source page's
 declared language, so non\-English articles break on the right morpheme
 boundaries. Figures are atomic: an image is scaled to fit within a single page

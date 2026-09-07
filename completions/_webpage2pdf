@@ -16,6 +16,17 @@ _arguments -s -S \
   '(-d --dir)'{-d,--dir}'[output directory; names come from article titles]:directory:_files -/' \
   '--from-list[read sources from a file, one per line]:list file:_files' \
   '--style[stylesheet name]:style:_webpage2pdf_styles' \
+  '--preset[page geometry]:preset:((
+      a4\:"A4 portrait, 25mm margins (default)"
+      letter\:"US Letter, 1in margins"
+      a5\:"A5 - half of A4, one-handed"
+      book\:"6x9in trim, facing pages with mirrored margins"
+      remarkable\:"reMarkable 2 e-ink screen"
+      two-column\:"A4 in two columns"))' \
+  '(--no-toc)--toc[add a contents list with page numbers]' \
+  '(--toc)--no-toc[never add a contents list]' \
+  '--list-presets[show available page presets and exit]' \
+  '--open[open each finished PDF in the default viewer]' \
   '--links[how to treat links]:mode:((
       plain\:"strip link styling — cleanest on paper"
       endnotes\:"superscript markers plus a numbered list at the end"

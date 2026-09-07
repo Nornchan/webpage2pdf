@@ -205,5 +205,12 @@ class Webpage2pdf < Formula
 
     assert_match version.to_s, shell_output("#{bin}/w2p --version")
     assert_match "essay", shell_output("#{bin}/webpage2pdf --list-styles")
+    assert_match "remarkable", shell_output("#{bin}/webpage2pdf --list-presets")
+
+    # A preset must change the page geometry, not just be accepted.
+    system bin/"webpage2pdf", testpath/"article.html",
+           "-o", testpath/"a5.pdf", "--preset", "a5", "--quiet"
+    assert_path_exists testpath/"a5.pdf"
+    refute_equal (testpath/"out.pdf").size, (testpath/"a5.pdf").size
   end
 end

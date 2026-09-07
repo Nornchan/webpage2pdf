@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
+import subprocess
 import sys
 
 from . import __version__
@@ -27,6 +29,7 @@ if "--doctor" in sys.argv:
     sys.exit(_bootstrap.diagnose())
 
 from . import converter  # noqa: E402
+from . import presets  # noqa: E402
 
 
 GREEN, YELLOW, RED, DIM, BOLD, OFF = (
@@ -60,6 +63,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="output directory; filenames come from article titles")
     p.add_argument("--from-list", metavar="FILE",
                    help="read sources from a text file, one per line (# = comment)")
+    p.add_argument("--preset", default=presets.DEFAULT_PRESET,
+                   metavar="NAME",
+                   help="page geometry: " + ", ".join(presets.names())
+                        + f" (default: {presets.DEFAULT_PRESET})")
     p.add_argument("--style", default="essay",
                    help="stylesheet name from styles/ (default: essay)")
     p.add_argument("--links", choices=["plain", "endnotes", "footnotes", "keep"],
@@ -86,10 +93,36 @@ def build_parser() -> argparse.ArgumentParser:
                    help="network timeout per request (default: 30)")
     p.add_argument("--list-styles", action="store_true",
                    help="show available stylesheets and exit")
+    p.add_argument("--list-presets", action="store_true",
+                   help="show available page presets and exit")
     p.add_argument("--doctor", action="store_true",
                    help="check the installation and report what's wrong")
+    p.add_argument("--open", dest="open_after", action="store_true",
+                   help="open each finished PDF in the default viewer")
     p.add_argument("-q", "--quiet", action="store_true", help="only print errors")
     return p
+
+
+def _open_file(path: str) -> None:
+    """
+    Show the finished PDF in the platform's default viewer.
+
+    Best effort throughout: failing to open a viewer is never a reason to
+    report a conversion that already succeeded as failed.
+    """
+    if sys.platform == "darwin":
+        opener = ["open"]
+    elif sys.platform.startswith("win"):
+        opener = ["cmd", "/c", "start", ""]
+    elif shutil.which("xdg-open"):
+        opener = ["xdg-open"]
+    else:
+        return
+    try:
+        subprocess.run([*opener, path], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
 
 
 def gather_sources(args: argparse.Namespace) -> list[str]:
@@ -110,6 +143,19 @@ def main(argv: list[str] | None = None) -> int:
         for name in converter.available_styles():
             print(name)
         return 0
+
+    if args.list_presets:
+        for name in presets.names():
+            page = presets.get(name)
+            print(f"{name:<12} {page.page_width_mm:g}x{page.page_height_mm:g}mm"
+                  f"  {page.description}")
+        return 0
+
+    try:
+        presets.get(args.preset)
+    except ValueError as exc:
+        print(f"{RED}{exc}{OFF}", file=sys.stderr)
+        return 1
 
     sources = gather_sources(args)
     if not sources:
@@ -146,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
                 standfirst=not args.no_standfirst,
                 images=not args.no_images,
                 toc=args.toc,
+                preset=args.preset,
                 keep_html=args.keep_html,
                 timeout=args.timeout,
             )
@@ -165,6 +212,9 @@ def main(argv: list[str] | None = None) -> int:
                       f"{result.images} images · {size_kb:,.0f} KB{OFF}")
                 for warning in result.warnings:
                     print(f"    {YELLOW}!{OFF} {warning}")
+
+            if args.open_after:
+                _open_file(result.pdf_path)
 
         except KeyboardInterrupt:
             print(f"\n{YELLOW}Interrupted.{OFF}", file=sys.stderr)

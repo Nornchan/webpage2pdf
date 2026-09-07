@@ -6,12 +6,16 @@ _webpage2pdf() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     opts="-h --help -V --version -o --output -d --dir --from-list --style
-          --links --no-numbering --no-images --no-url --no-standfirst
-          --keep-html --timeout --list-styles --doctor -q --quiet"
+          --preset --links --toc --no-toc --no-numbering --no-images --no-url
+          --no-standfirst --keep-html --timeout --list-styles --list-presets
+          --open --doctor -q --quiet"
 
     case "${prev}" in
         --links)
             COMPREPLY=( $(compgen -W "plain endnotes footnotes keep" -- "${cur}") )
+            return 0 ;;
+        --preset)
+            COMPREPLY=( $(compgen -W "$(webpage2pdf --list-presets 2>/dev/null | cut -d" " -f1)" -- "${cur}") )
             return 0 ;;
         --style)
             # Ask the tool itself, so new stylesheets complete without edits here.

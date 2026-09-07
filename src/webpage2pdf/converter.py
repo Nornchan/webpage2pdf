@@ -35,35 +35,18 @@ except OSError as exc:  # native libraries missing or unreachable
     ) from exc
 
 from . import extractor  # noqa: E402
+from . import presets  # noqa: E402
 from .extractor import Article  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STYLE_DIR = os.path.join(HERE, "styles")
 
-# The box an image must fit inside, in millimetres.
-#
-# TEXT_WIDTH_MM is the real text measure: A4 is 210mm wide and essay.css sets
-# 25mm side margins, so 210 - 25 - 25 = 160.
-#
-# TEXT_HEIGHT_MM is deliberately NOT the full text block. That block is
-# 297 - 25 (top) - 22 (bottom) = 250mm, but an image is never alone on the page:
-# it carries a caption, and a figure is atomic (break-inside: avoid), so a
-# 250mm-tall image plus a caption produces a figure taller than any page can
-# hold — which forces exactly the split this tool exists to prevent. The 55mm of
-# slack is headroom for the caption and a line or two of surrounding text.
-#
-# If you change the margins in essay.css, change TEXT_WIDTH_MM to match the new
-# measure, but keep the slack in TEXT_HEIGHT_MM rather than setting it to the
-# full block height.
-PAGE_HEIGHT_MM = 297.0          # A4
-MARGIN_TOP_MM = 25.0            # must match @page in essay.css
-MARGIN_BOTTOM_MM = 22.0         # must match @page in essay.css
-CAPTION_HEADROOM_MM = 55.0      # room for a caption under a full-height image
-
-TEXT_WIDTH_MM = 160.0
-TEXT_HEIGHT_MM = (
-    PAGE_HEIGHT_MM - MARGIN_TOP_MM - MARGIN_BOTTOM_MM - CAPTION_HEADROOM_MM
-)
+# Page geometry now lives in presets.py, which emits the CSS and reports the
+# text block from the same numbers, so the two can no longer drift apart. These
+# names are kept because they are part of the module's surface, and they are
+# what the default A4 preset resolves to.
+TEXT_WIDTH_MM = presets.get(presets.DEFAULT_PRESET).text_width_mm     # 160.0
+TEXT_HEIGHT_MM = presets.get(presets.DEFAULT_PRESET).text_height_mm   # 195.0
 
 
 @dataclass
@@ -210,6 +193,7 @@ def convert(source: str, output_path: str, *,
             standfirst: bool = True,
             images: bool = True,
             toc: bool | None = None,
+            preset: str = presets.DEFAULT_PRESET,
             keep_html: str | None = None,
             timeout: int = 30) -> Result:
     """
@@ -218,6 +202,7 @@ def convert(source: str, output_path: str, *,
     `source` may be an http(s) URL or a filesystem path.
     `toc` is True/False to force a contents list, or None to decide from the
     document's length and section count.
+    `preset` names a page geometry from presets.PRESETS.
     Returns a Result describing what was produced.
     """
     asset_dir = tempfile.mkdtemp(prefix="w2p-assets-")
@@ -230,11 +215,15 @@ def convert(source: str, output_path: str, *,
                 raise FileNotFoundError(f"No such file: {path}")
             raw_html, base_url = extractor.read_local(path)
 
+        page = presets.get(preset)
+
         art = extractor.extract(
             raw_html, base_url, asset_dir,
             link_mode=link_mode,
-            text_width_mm=TEXT_WIDTH_MM,
-            text_height_mm=TEXT_HEIGHT_MM,
+            # Fitted against this preset's text block, not A4's, so an image
+            # that fits one page on A4 still fits one page on A5.
+            text_width_mm=page.text_width_mm,
+            text_height_mm=page.text_height_mm,
             download_images=images,
         )
 
@@ -271,7 +260,12 @@ def convert(source: str, output_path: str, *,
         font_config = FontConfiguration()
 
         doc = HTML(string=document_html, base_url=asset_dir + os.sep).render(
-            stylesheets=[CSS(filename=css_path, font_config=font_config)],
+            stylesheets=[
+                CSS(filename=css_path, font_config=font_config),
+                # Geometry last, so a preset overrides whatever @page the
+                # chosen stylesheet declares.
+                CSS(string=page.css(), font_config=font_config),
+            ],
             font_config=font_config,
         )
         doc.write_pdf(output_path)
