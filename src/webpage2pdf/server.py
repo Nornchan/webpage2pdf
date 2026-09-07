@@ -23,8 +23,11 @@ import urllib.parse
 import webbrowser
 
 from . import __version__
+from . import cache as cache_mod
 from . import converter
 from . import presets
+from . import profiles
+from . import writers
 
 DEFAULT_PORT = 8765
 
@@ -36,6 +39,10 @@ DEFAULT_OUTPUT_DIR = os.path.join(
     os.path.expanduser("~"), "Documents", "webpage2pdf"
 )
 OUTPUT_DIR = DEFAULT_OUTPUT_DIR
+
+# Shared by every request. The web app is exactly where the cache earns its
+# keep: changing an option and converting again should not re-download the page.
+STORE = cache_mod.Cache()
 
 
 # ==========================================================================
@@ -154,10 +161,28 @@ PAGE = r"""<!DOCTYPE html>
 
     <div class="opts" style="margin-top:22px">
       <div>
+        <label class="field" for="profile">What are you making?</label>
+        <select id="profile"></select>
+      </div>
+      <div>
+        <label class="field" for="format">File type</label>
+        <select id="format">
+          <option value="pdf">PDF — typeset for paper</option>
+          <option value="html">HTML — one self-contained file</option>
+          <option value="epub">EPUB — reflows on a device</option>
+          <option value="md">Markdown — for a notes folder</option>
+        </select>
+      </div>
+      <div>
+        <label class="field" for="preset">Page size</label>
+        <select id="preset"></select>
+      </div>
+      <div>
         <label class="field" for="links">Links in the text</label>
         <select id="links">
-          <option value="plain" selected>Plain text — cleanest to read</option>
+          <option value="plain">Plain text — cleanest to read</option>
           <option value="endnotes">Numbered endnotes at the end</option>
+          <option value="footnotes">Footnotes at the foot of the page</option>
           <option value="keep">Keep clickable</option>
         </select>
       </div>
@@ -166,6 +191,7 @@ PAGE = r"""<!DOCTYPE html>
         <select id="style"></select>
       </div>
     </div>
+    <div class="hint" id="profilehint"></div>
 
     <div class="checks">
       <label><input type="checkbox" id="numbered" checked> Number sections &amp; figures</label>
@@ -184,10 +210,42 @@ PAGE = r"""<!DOCTYPE html>
 const $ = id => document.getElementById(id);
 const dropped = [];   // { name, html } from drag-and-drop
 
+let PROFILES = {};
+
 fetch('/api/info').then(r => r.json()).then(info => {
   $('style').innerHTML = info.styles
     .map(s => `<option value="${s}"${s === 'essay' ? ' selected' : ''}>${s}</option>`).join('');
-  $('folder').innerHTML = 'Saving to <code>' + info.output_dir + '</code>';
+  $('preset').innerHTML = (info.presets || [])
+    .map(p => `<option value="${p.name}"${p.name === 'a4' ? ' selected' : ''}>`
+            + `${p.name} — ${esc(p.description)}</option>`).join('');
+  PROFILES = Object.fromEntries((info.profiles || []).map(p => [p.name, p]));
+  $('profile').innerHTML = (info.profiles || [])
+    .map(p => `<option value="${p.name}"${p.name === info.default_profile ? ' selected' : ''}>`
+            + `${p.name}</option>`).join('');
+  applyProfile();
+  $('folder').innerHTML = 'Saving to <code>' + esc(info.output_dir) + '</code>';
+});
+
+// Picking a profile fills in the individual controls rather than hiding them:
+// you can see what it chose, and then change any one part of it — the same
+// relationship the command line has between --profile and the other flags.
+function applyProfile() {
+  const p = PROFILES[$('profile').value];
+  if (!p) return;
+  $('format').value   = p.fmt;
+  $('preset').value   = p.preset;
+  $('links').value    = p.links;
+  $('style').value    = p.style;
+  $('numbered').checked = p.numbered;
+  $('images').checked   = p.images;
+  $('showurl').checked  = p.show_url;
+  $('preset').disabled  = p.fmt !== 'pdf';
+  $('profilehint').textContent = p.description;
+}
+
+document.addEventListener('change', ev => {
+  if (ev.target.id === 'profile') applyProfile();
+  if (ev.target.id === 'format') $('preset').disabled = $('format').value !== 'pdf';
 });
 
 const drop = $('drop');
@@ -234,6 +292,8 @@ $('go').onclick = async () => {
   if (!jobs.length) { alert('Add at least one link, path, or file.'); return; }
 
   const options = {
+    fmt:      $('format').value,
+    preset:   $('preset').value,
     links:    $('links').value,
     style:    $('style').value,
     numbered: $('numbered').checked,
@@ -270,7 +330,7 @@ $('go').onclick = async () => {
         row.innerHTML = `<span class="badge">✓</span>
           <div class="body">
             <div class="name">${esc(data.title)}</div>
-            <div class="meta">${data.pages} pages · ${data.words.toLocaleString()} words
+            <div class="meta">${data.pages ? data.pages + ' pages · ' : ''}${data.words.toLocaleString()} words
               · ${data.images} images · ${data.size_kb} KB</div>${warns}
           </div>
           <a class="dl" href="/download/${encodeURIComponent(data.file)}" download>Download</a>`;
@@ -336,12 +396,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
 
         elif route == "/api/info":
+            try:
+                profile_list = [
+                    dict(profiles.get(n).settings(),
+                         name=n, description=profiles.get(n).description)
+                    for n in profiles.names()
+                ]
+            except ValueError as exc:
+                # A malformed user profile must not take the whole app down.
+                profile_list = [
+                    dict(profiles.BUILTIN[n].settings(), name=n,
+                         description=profiles.BUILTIN[n].description)
+                    for n in sorted(profiles.BUILTIN)
+                ]
+                sys.stderr.write(f"  ! ignoring user profiles: {exc}\n")
+
             self._json(200, {
                 "styles": converter.available_styles(),
                 "presets": [
                     {"name": n, "description": presets.get(n).description}
                     for n in presets.names()
                 ],
+                "profiles": profile_list,
+                "default_profile": profiles.DEFAULT_PROFILE,
+                "formats": list(writers.FORMATS),
                 "output_dir": OUTPUT_DIR,
             })
 
@@ -354,7 +432,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             with open(path, "rb") as fh:
                 data = fh.read()
-            self._send(200, data, "application/pdf", {
+            ctype = {
+                ".pdf": "application/pdf",
+                ".epub": "application/epub+zip",
+                ".html": "text/html; charset=utf-8",
+                ".md": "text/markdown; charset=utf-8",
+            }.get(os.path.splitext(name)[1].lower(), "application/octet-stream")
+            self._send(200, data, ctype, {
                 "Content-Disposition": f'attachment; filename="{name}"'
             })
 
@@ -401,7 +485,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # Unique per request: this is a threading server, so a single
             # fixed staging name means two simultaneous conversions overwrite
             # each other's half-written file.
-            staging = converter.staging_path(OUTPUT_DIR)
+            fmt = opts.get("fmt", "pdf")
+            if fmt not in writers.FORMATS:
+                raise ValueError(f"Unknown format '{fmt}'")
+            staging = converter.staging_path(OUTPUT_DIR, fmt)
 
             result = converter.convert(
                 source, staging,
@@ -412,10 +499,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 images=bool(opts.get("images", True)),
                 toc=opts.get("toc"),
                 preset=opts.get("preset", presets.DEFAULT_PRESET),
+                fmt=fmt,
+                store=STORE,
             )
 
             final_path = converter.claim_output_path(
-                os.path.join(OUTPUT_DIR, converter.suggest_filename(result.title))
+                os.path.join(OUTPUT_DIR,
+                             converter.suggest_filename(result.title, fmt=fmt))
             )
             final_name = os.path.basename(final_path)
             converter.finalize_output(staging, final_path)

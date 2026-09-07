@@ -46,7 +46,9 @@ That puts three commands on your path: `webpage2pdf`, its short alias `w2p`, and
 webpage2pdf-server
 ```
 
-Opens `http://127.0.0.1:8765`. Paste links or file paths one per line, or drop saved `.html` files onto the page. Finished PDFs land in `~/Documents/webpage2pdf` (override with `-o`) and download with one click. Nothing is uploaded anywhere — the server runs on your machine and is not reachable from the network.
+Opens `http://127.0.0.1:8765`. Paste links or file paths one per line, or drop saved `.html` files onto the page. Pick a profile and it fills in the format, page size, link handling and numbering — visibly, so you can then change any one part of it, the same relationship `--profile` has with the other flags. Finished files land in `~/Documents/webpage2pdf` (override with `-o`) and download with one click.
+
+Nothing is uploaded anywhere — the server binds to `127.0.0.1` only, so it is not reachable from the network, and it shares the fetch cache with the command line, so re-converting a page with different options costs no network at all.
 
 ### The command line
 
