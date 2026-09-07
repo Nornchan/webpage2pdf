@@ -1,28 +1,43 @@
-# Releasing, and standing up the Homebrew tap
+# Releasing, and the Homebrew tap
 
-Everything here is outward-facing — it creates public repositories and uploads
-artefacts — so none of it has been run for you. The formula in this directory is
-complete and `brew style`-clean apart from the placeholder `sha256`, which
-cannot be computed until a tarball exists.
+## Status: done for v0.1.0
+
+- Source repo: [github.com/Nornchan/webpage2pdf](https://github.com/Nornchan/webpage2pdf), public
+- Release: [v0.1.0](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.0), tagged against the finished commit
+- Tap: [github.com/Nornchan/homebrew-tap](https://github.com/Nornchan/homebrew-tap), public
+- Install, verified end to end from a genuinely fresh, untapped, untrusted
+  machine state:
+
+  ```bash
+  brew install Nornchan/tap/webpage2pdf
+  ```
+
+- `brew test`, `brew audit --strict --online`: both exit 0, no findings.
+
+The steps below are the ones that got it there. Sections 1–2 and "Refreshing
+dependency pins" are the ones you'll actually repeat for a future release;
+"Create the tap" is a one-time action, done, kept here only in case the tap
+ever needs to be recreated from scratch.
 
 ## 1. Publish the source repository
 
 ```bash
 gh repo create webpage2pdf --public --source=. --remote=origin --push
-git push origin v0.1.0
+git push origin vX.Y.Z
 ```
 
 ## 2. Cut the release and get the checksum
 
 ```bash
-gh release create v0.1.0 --generate-notes
-curl -sL https://github.com/Nornchan/webpage2pdf/archive/refs/tags/v0.1.0.tar.gz \
+gh release create vX.Y.Z --generate-notes
+curl -sL https://github.com/Nornchan/webpage2pdf/archive/refs/tags/vX.Y.Z.tar.gz \
   | shasum -a 256
 ```
 
-Paste that digest over `REPLACE_AFTER_RELEASE` in `webpage2pdf.rb`.
+Paste that digest over the `sha256` line in `webpage2pdf.rb`, and bump the
+`url` and `version` to match.
 
-## 3. Create the tap
+## 3. Create the tap — one-time, already done
 
 A tap is just a repository named `homebrew-<something>`:
 
@@ -33,19 +48,42 @@ cp packaging/webpage2pdf.rb homebrew-tap/Formula/
 cd homebrew-tap && git add -A && git commit -m "webpage2pdf 0.1.0" && git push
 ```
 
+A future formula update goes straight to `homebrew-tap`'s `Formula/webpage2pdf.rb`
+— see "Refreshing dependency pins" below — not through this step again.
+
 ## 4. Verify before announcing it
 
 ```bash
-brew tap Nornchan/tap
-brew install --build-from-source Nornchan/tap/webpage2pdf
+brew install Nornchan/tap/webpage2pdf
 brew test Nornchan/tap/webpage2pdf
 brew audit --strict --online Nornchan/tap/webpage2pdf
 ```
 
+No `--build-from-source` needed: the formula ships no bottle, so every install
+already builds from source.
+
+One thing worth knowing if you're on a newer Homebrew: `brew tap user/repo`
+alone can refuse to load an untrusted third-party tap's formula and ask for
+`brew trust --tap user/repo` first. `brew install user/repo/formula` does not
+hit this — it auto-trusts the formula it was explicitly told to install, even
+from a completely untapped, untrusted state. Confirmed by wiping local tap and
+trust state entirely and re-running the command above from scratch.
+
 `brew test` runs the `test do` block in the formula: it converts a page wrapped
 in nav, sidebar and footer, then asserts the PDF is real, the article survived
-and the footer did not. All six of its assertions have been checked against the
-working tool, so a failure means the packaging is wrong, not the test.
+and the footer did not, and (as of the current formula) that all four output
+formats produce a file of the right shape and the CLI reads from stdin and
+writes to stdout. Every one of those assertions has been checked against the
+working tool directly, so a failure means the packaging is wrong, not the test.
+
+Building from source genuinely needs to succeed, not just parse: the first
+attempt at this formula failed twice on real gaps — Pillow's sdist build needs
+`cmake`/`ninja` on `PATH` or pip tries to bootstrap them from source inside
+Homebrew's sandboxed build environment and fails in a way that has nothing to
+do with the actual error; and every *library* dependency (jpeg-turbo, etc.) was
+declared but not `pkg-config`, the tool that actually reads their `.pc` files.
+Both are now `depends_on ... => :build` in the formula. `brew style` alone
+would never have caught either one.
 
 ## 5. Confirm pango is found reliably
 
@@ -59,7 +97,6 @@ depending on you having separately run `brew install pango` and built the
 venv from that same Homebrew Python rather than Anaconda's. Check:
 
 ```bash
-brew install Nornchan/tap/webpage2pdf
 webpage2pdf --doctor        # should report pango found, all packages OK
 ```
 
@@ -72,11 +109,17 @@ after a dependency bump:
 brew update-python-resources Formula/webpage2pdf.rb
 ```
 
+Keep `packaging/webpage2pdf.rb` in the main repo as the source of truth, copy
+the result to `homebrew-tap/Formula/webpage2pdf.rb`, and rebuild from scratch
+(not `--build-from-source` on top of a cached bottle — there is no bottle) to
+confirm the new pins actually install before pushing.
+
 ## Known deviations from homebrew-core
 
 Fine for a personal tap; fix before ever proposing it to homebrew-core.
 
 - `Style/Documentation` — `brew style` wants a class doc comment on a standalone
-  file. Formulae inside a tap are exempt via the tap's own rubocop config.
+  file. Formulae inside a tap are exempt via the tap's own rubocop config, and
+  confirmed clean when checked from inside a real `Formula/` directory.
 - homebrew-core requires notability (stars, watchers, forks) that a new project
   will not have. The tap is the right home for now.
