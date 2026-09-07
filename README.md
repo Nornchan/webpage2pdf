@@ -1,6 +1,6 @@
 # webpage2pdf
 
-[![CI](https://github.com/norachan/webpage2pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/norachan/webpage2pdf/actions/workflows/ci.yml)
+[![CI](https://github.com/Nornchan/webpage2pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/Nornchan/webpage2pdf/actions/workflows/ci.yml)
 
 Turns web pages into clean A4 PDFs that read like typeset essays instead of screenshots of a website.
 

@@ -9,7 +9,7 @@ description = "Turn web pages into clean A4 PDFs that read like typeset essays."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-authors = [{ name = "norachan" }]
+authors = [{ name = "Nora Chan", email = "norachan0197@icloud.com" }]
 keywords = ["pdf", "typography", "readability", "weasyprint", "print", "reading"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -31,9 +31,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/norachan/webpage2pdf"
-Source = "https://github.com/norachan/webpage2pdf"
-Issues = "https://github.com/norachan/webpage2pdf/issues"
+Homepage = "https://github.com/Nornchan/webpage2pdf"
+Source = "https://github.com/Nornchan/webpage2pdf"
+Issues = "https://github.com/Nornchan/webpage2pdf/issues"
 
 # `webpage2pdf` is the canonical name; `w2p` is the one you actually type.
 # Deliberately not `html2pdf` — that name collides with several existing tools

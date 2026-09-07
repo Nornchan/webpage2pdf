@@ -16,13 +16,11 @@ git push origin v0.1.0
 
 ```bash
 gh release create v0.1.0 --generate-notes
-curl -sL https://github.com/<you>/webpage2pdf/archive/refs/tags/v0.1.0.tar.gz \
+curl -sL https://github.com/Nornchan/webpage2pdf/archive/refs/tags/v0.1.0.tar.gz \
   | shasum -a 256
 ```
 
-Paste that digest over `replace_with_tarball_sha256` in `webpage2pdf.rb`, and
-replace `norachan` in the `homepage`, `url` and `head` fields if your GitHub
-username differs.
+Paste that digest over `REPLACE_AFTER_RELEASE` in `webpage2pdf.rb`.
 
 ## 3. Create the tap
 
@@ -38,10 +36,10 @@ cd homebrew-tap && git add -A && git commit -m "webpage2pdf 0.1.0" && git push
 ## 4. Verify before announcing it
 
 ```bash
-brew tap <you>/tap
-brew install --build-from-source <you>/tap/webpage2pdf
-brew test <you>/tap/webpage2pdf
-brew audit --strict --online <you>/tap/webpage2pdf
+brew tap Nornchan/tap
+brew install --build-from-source Nornchan/tap/webpage2pdf
+brew test Nornchan/tap/webpage2pdf
+brew audit --strict --online Nornchan/tap/webpage2pdf
 ```
 
 `brew test` runs the `test do` block in the formula: it converts a page wrapped
@@ -57,7 +55,7 @@ Homebrew's own Python with `pango` as a declared dependency, so
 installs still need it. Check:
 
 ```bash
-brew install <you>/tap/webpage2pdf
+brew install Nornchan/tap/webpage2pdf
 webpage2pdf --doctor        # should report pango found, all packages OK
 ```
 

@@ -5,15 +5,11 @@ class Webpage2pdf < Formula
   include Language::Python::Virtualenv
 
   desc "Turn web pages into clean A4 PDFs that read like typeset essays"
-  homepage "https://github.com/norachan/webpage2pdf"
-  # TODO: before first release: point at the v0.1.0 tarball and fill in its
-  # sha256. Get both with:
-  #   gh release create v0.1.0 --generate-notes
-  #   curl -sL <tarball-url> | shasum -a 256
-  url "https://github.com/norachan/webpage2pdf/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "replace_with_tarball_sha256"
+  homepage "https://github.com/Nornchan/webpage2pdf"
+  url "https://github.com/Nornchan/webpage2pdf/archive/refs/tags/v0.1.0.tar.gz"
+  sha256 "REPLACE_AFTER_RELEASE"
   license "MIT"
-  head "https://github.com/norachan/webpage2pdf.git", branch: "main"
+  head "https://github.com/Nornchan/webpage2pdf.git", branch: "main"
 
   # Alphabetical, as brew style requires. Two groups are doing the real work:
   #
