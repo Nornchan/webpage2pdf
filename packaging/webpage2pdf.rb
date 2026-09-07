@@ -218,6 +218,11 @@ class Webpage2pdf < Formula
     system bin/"webpage2pdf", testpath/"article.html", "-o", testpath/"a.html", "--quiet"
     assert_match "<!DOCTYPE html>", (testpath/"a.html").read
 
+    # Reads from stdin and writes to stdout, so it composes in a pipeline.
+    piped = pipe_output("#{bin}/webpage2pdf - -o - --quiet",
+                        (testpath/"article.html").read)
+    assert_equal "%PDF", piped[0, 4]
+
     # A preset must change the page geometry, not just be accepted.
     system bin/"webpage2pdf", testpath/"article.html",
            "-o", testpath/"a5.pdf", "--preset", "a5", "--quiet"

@@ -151,8 +151,18 @@ class Article:
 # Fetching
 # --------------------------------------------------------------------------
 
-def fetch(url: str, timeout: int = 30) -> tuple[str, str]:
-    """Download a page. Returns (html, final_url) after redirects."""
+def fetch(url: str, timeout: int = 30, store=None) -> tuple[str, str]:
+    """
+    Download a page. Returns (html, final_url) after redirects.
+
+    `store` is an optional cache.Cache. Converting one article to a second
+    format, or trying it against another profile, should not re-download it.
+    """
+    if store is not None:
+        hit = store.get_page(url)
+        if hit is not None:
+            return hit
+
     headers = {
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -165,6 +175,9 @@ def fetch(url: str, timeout: int = 30) -> tuple[str, str]:
     # trust the declared charset when the server actually declared one.
     if resp.encoding and "charset" not in resp.headers.get("content-type", "").lower():
         resp.encoding = resp.apparent_encoding or resp.encoding
+
+    if store is not None:
+        store.put_page(url, resp.text, resp.url)
     return resp.text, resp.url
 
 
@@ -697,8 +710,21 @@ def _resolve_src(img: Tag, base_url: str) -> str | None:
     return None
 
 
-def _download_image(url: str, asset_dir: str, session: requests.Session) -> str | None:
+def _download_image(url: str, asset_dir: str, session: requests.Session,
+                    store=None) -> str | None:
     """Save an image locally and return its path, or None if unusable."""
+    cached = store.get_asset(url) if store is not None else None
+    if cached is not None:
+        ext = os.path.splitext(urllib.parse.urlparse(url).path)[1]
+        if len(ext) > 5 or not ext:
+            ext = ".png"
+        path = os.path.join(
+            asset_dir,
+            hashlib.sha1(url.encode("utf-8", "ignore")).hexdigest()[:16] + ext)
+        with open(path, "wb") as fh:
+            fh.write(cached)
+        return path
+
     try:
         if url.startswith("data:"):
             header, _, payload = url.partition(",")
@@ -726,6 +752,11 @@ def _download_image(url: str, asset_dir: str, session: requests.Session) -> str 
     if len(data) < 1200:  # tracking pixels and spacers
         return None
 
+    # Only remote fetches are worth caching; data: and file:// URLs cost
+    # nothing to re-read and would just bloat the store.
+    if store is not None and not url.startswith(("data:", "file://")):
+        store.put_asset(url, data)
+
     name = hashlib.sha1(url.encode("utf-8", "ignore")).hexdigest()[:16] + ext
     path = os.path.join(asset_dir, name)
     with open(path, "wb") as fh:
@@ -735,7 +766,7 @@ def _download_image(url: str, asset_dir: str, session: requests.Session) -> str 
 
 def _process_images(root: Tag, base_url: str, asset_dir: str,
                     text_width_mm: float, text_height_mm: float,
-                    warnings: list[str]) -> int:
+                    warnings: list[str], store=None) -> int:
     """
     Download images, drop the junk, wrap survivors in <figure>, and — the part
     that matters for print — cap each image so it can never be taller than the
@@ -766,7 +797,7 @@ def _process_images(root: Tag, base_url: str, asset_dir: str,
             img.decompose()
             continue
 
-        local = _download_image(src, asset_dir, session)
+        local = _download_image(src, asset_dir, session, store)
         if not local:
             img.decompose()
             continue
@@ -1009,7 +1040,8 @@ def extract(html: str, base_url: str, asset_dir: str, *,
             link_mode: str = "plain",
             text_width_mm: float = 160.0,
             text_height_mm: float = 195.0,
-            download_images: bool = True) -> Article:
+            download_images: bool = True,
+            store=None) -> Article:
     """Parse raw HTML into a clean Article. `asset_dir` receives downloaded images."""
     soup = BeautifulSoup(html, "lxml")
     art = Article(source_url=base_url if base_url.startswith("http") else "")
@@ -1033,7 +1065,8 @@ def extract(html: str, base_url: str, asset_dir: str, *,
 
     if download_images:
         art.images = _process_images(
-            root, base_url, asset_dir, text_width_mm, text_height_mm, art.warnings
+            root, base_url, asset_dir, text_width_mm, text_height_mm,
+            art.warnings, store,
         )
     else:
         for img in root.find_all("img"):

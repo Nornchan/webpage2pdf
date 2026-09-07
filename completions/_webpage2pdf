@@ -29,6 +29,12 @@ _arguments -s -S \
       epub\:"reflowable, for an e-reader"
       md\:"Markdown with front matter"))' \
   '--list-profiles[show available profiles and exit]' \
+  '(-j --jobs)'{-j,--jobs}'[fetch this many pages at once]:jobs:' \
+  '--no-cache[do not read or write the fetch cache]' \
+  '--refresh[re-fetch even when a cached copy is held]' \
+  '--cache-info[show what the cache holds and exit]' \
+  '--clear-cache[empty the cache and exit]' \
+  '--fix[with --doctor, attempt the repairs it recommends]' \
   '--preset[page geometry]:preset:((
       a4\:"A4 portrait, 25mm margins (default)"
       letter\:"US Letter, 1in margins"

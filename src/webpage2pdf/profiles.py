@@ -89,6 +89,44 @@ BUILTIN: dict[str, Profile] = {
 DEFAULT_PROFILE = "essay"
 
 
+CONFIG_KEYS = {"profile", "dir", "jobs", "open", "timeout", "cache"}
+
+
+def config_path() -> str:
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "webpage2pdf", "config.toml")
+
+
+def load_config() -> dict:
+    """
+    Read ~/.config/webpage2pdf/config.toml.
+
+    This holds the answers you would otherwise retype on every invocation — the
+    profile you usually want, where finished files go — not per-document
+    choices, which belong on the command line. An unknown key is reported
+    rather than ignored, on the same reasoning as profiles: a setting that
+    silently does nothing is worse than one that refuses to load.
+    """
+    path = config_path()
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ValueError(f"{path}: {exc}") from None
+
+    unknown = set(data) - CONFIG_KEYS
+    if unknown:
+        raise ValueError(
+            f"{path}: unknown setting(s) {', '.join(sorted(unknown))}. "
+            f"Valid: {', '.join(sorted(CONFIG_KEYS))}"
+        )
+    if "dir" in data:
+        data["dir"] = os.path.expanduser(str(data["dir"]))
+    return data
+
+
 def user_dir() -> str:
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
     return os.path.join(base, "webpage2pdf", "profiles")

@@ -115,8 +115,72 @@ def _reexec_argv() -> list[str] | None:
     return None
 
 
+def _run(command: list[str]) -> bool:
+    """Run one remedial command, showing it first."""
+    import subprocess
+    print("      $ " + " ".join(command))
+    try:
+        result = subprocess.run(command, check=False)
+    except OSError as exc:
+        print(f"      failed to start: {exc}")
+        return False
+    return result.returncode == 0
+
+
+def repair() -> int:
+    """
+    Attempt the fixes `diagnose` would otherwise only recommend.
+
+    Backs `--doctor --fix`. Every command is printed before it runs, because
+    this installs software: you should be able to see what it did afterwards,
+    and run the same thing by hand if you would rather.
+    """
+    print("\n  webpage2pdf repair")
+    print("  " + "-" * 52)
+
+    changed = False
+
+    if sys.platform == "darwin" and not _dirs_containing_pango():
+        import shutil
+        if shutil.which("brew") is None:
+            print("  Pango is missing and Homebrew is not installed.")
+            print("  Install Homebrew first: https://brew.sh")
+            return 1
+        print("  Pango is missing. Installing it:")
+        changed |= _run(["brew", "install", "pango"])
+
+    missing = []
+    for module in ("weasyprint", "bs4", "lxml", "requests", "PIL"):
+        try:
+            __import__(module)
+        except Exception:
+            missing.append(module)
+
+    if missing:
+        # Install the project, not the individual modules: the import names do
+        # not all match their distribution names, and the pins live in
+        # pyproject.toml anyway.
+        print(f"  Missing Python packages: {', '.join(missing)}")
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+        target = project_root if os.path.isfile(
+            os.path.join(project_root, "pyproject.toml")) else "webpage2pdf"
+        changed |= _run([sys.executable, "-m", "pip", "install", "-e", target]
+                        if target != "webpage2pdf"
+                        else [sys.executable, "-m", "pip", "install", "webpage2pdf"])
+
+    if not changed:
+        print("  Nothing to repair.\n")
+        return 0
+
+    print("\n  Re-checking:")
+    # The library path is worked out at process start, so a freshly installed
+    # Pango is only visible to a new process.
+    return _run([sys.executable, "-m", "webpage2pdf", "--doctor"]) and 0 or 1
+
+
 def diagnose() -> int:
-    """Print an environment report. Backs `html2pdf.py --doctor`."""
+    """Print an environment report. Backs `webpage2pdf --doctor`."""
     ok = True
     print("\n  webpage2pdf environment check")
     print("  " + "-" * 52)

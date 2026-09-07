@@ -34,6 +34,7 @@ except OSError as exc:  # native libraries missing or unreachable
         "    webpage2pdf --doctor\n"
     ) from exc
 
+from . import cache as cache_mod  # noqa: E402
 from . import extractor  # noqa: E402
 from . import presets  # noqa: E402
 from . import writers  # noqa: E402
@@ -201,6 +202,8 @@ def convert(source: str, output_path: str, *,
             toc: bool | None = None,
             preset: str = presets.DEFAULT_PRESET,
             fmt: str = "pdf",
+            store: "cache_mod.Cache | None" = None,
+            on_phase=None,
             keep_html: str | None = None,
             timeout: int = 30) -> Result:
     """
@@ -212,12 +215,21 @@ def convert(source: str, output_path: str, *,
     `preset` names a page geometry from presets.PRESETS.
     `fmt` is one of writers.FORMATS: pdf, html, epub or md. Only pdf uses the
     page geometry; the others reflow.
+    `store` is an optional cache.Cache; without one every run re-fetches.
+    `on_phase` is called with a short label as each stage begins, so a caller
+    can show where the time is going — a slow fetch otherwise looks like a hang.
     Returns a Result describing what was produced.
     """
+    def phase(label: str) -> None:
+        if on_phase is not None:
+            on_phase(label)
+
     asset_dir = tempfile.mkdtemp(prefix="w2p-assets-")
     try:
+        phase("fetching")
         if source.startswith(("http://", "https://")):
-            raw_html, base_url = extractor.fetch(source, timeout=timeout)
+            raw_html, base_url = extractor.fetch(source, timeout=timeout,
+                                                 store=store)
         else:
             path = os.path.abspath(os.path.expanduser(source))
             if not os.path.isfile(path):
@@ -226,6 +238,7 @@ def convert(source: str, output_path: str, *,
 
         page = presets.get(preset)
 
+        phase("extracting")
         art = extractor.extract(
             raw_html, base_url, asset_dir,
             link_mode=link_mode,
@@ -234,8 +247,10 @@ def convert(source: str, output_path: str, *,
             text_width_mm=page.text_width_mm,
             text_height_mm=page.text_height_mm,
             download_images=images,
+            store=store,
         )
 
+        phase("rendering")
         document_html = _build_document(
             art, numbered=numbered, show_url=show_url, standfirst=standfirst,
             toc=_wants_toc(art, toc),

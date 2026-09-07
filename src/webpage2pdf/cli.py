@@ -26,9 +26,13 @@ from . import __version__
 if "--doctor" in sys.argv:
     from . import _bootstrap
     _bootstrap.ensure_native_libs()
+    if "--fix" in sys.argv:
+        sys.exit(_bootstrap.repair())
     sys.exit(_bootstrap.diagnose())
 
+from . import cache as cache_mod  # noqa: E402
 from . import converter  # noqa: E402
+from . import extractor  # noqa: E402
 from . import presets  # noqa: E402
 from . import profiles  # noqa: E402
 from . import writers  # noqa: E402
@@ -58,10 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-V", "--version", action="version",
                    version=f"webpage2pdf {__version__}")
     p.add_argument("sources", nargs="*",
-                   help="URLs and/or paths to saved .html files")
+                   help="URLs and/or paths to saved .html files; "
+                        "- reads HTML from standard input")
     p.add_argument("-o", "--output", metavar="FILE",
-                   help="output PDF path (single source only)")
-    p.add_argument("-d", "--dir", metavar="DIR", default=".",
+                   help="output path (single source only); - writes to stdout")
+    p.add_argument("-d", "--dir", metavar="DIR", default=None,
                    help="output directory; filenames come from article titles")
     p.add_argument("--from-list", metavar="FILE",
                    help="read sources from a text file, one per line (# = comment)")
@@ -104,7 +109,18 @@ def build_parser() -> argparse.ArgumentParser:
                    help="omit the italic summary line under the title")
     p.add_argument("--keep-html", metavar="FILE",
                    help="also save the cleaned HTML (useful for debugging)")
-    p.add_argument("--timeout", type=int, default=30, metavar="SEC",
+    p.add_argument("-j", "--jobs", type=int, default=None, metavar="N",
+                   help="fetch this many pages at once when converting a batch "
+                        "(default: 4; rendering stays single-threaded)")
+    p.add_argument("--no-cache", action="store_true",
+                   help="do not read or write the fetch cache")
+    p.add_argument("--refresh", action="store_true",
+                   help="re-fetch even when a cached copy is held")
+    p.add_argument("--cache-info", action="store_true",
+                   help="show what the cache holds and exit")
+    p.add_argument("--clear-cache", action="store_true",
+                   help="delete everything in the cache and exit")
+    p.add_argument("--timeout", type=int, default=None, metavar="SEC",
                    help="network timeout per request (default: 30)")
     p.add_argument("--list-styles", action="store_true",
                    help="show available stylesheets and exit")
@@ -114,10 +130,46 @@ def build_parser() -> argparse.ArgumentParser:
                    help="show available profiles and exit")
     p.add_argument("--doctor", action="store_true",
                    help="check the installation and report what's wrong")
-    p.add_argument("--open", dest="open_after", action="store_true",
+    p.add_argument("--fix", action="store_true",
+                   help="with --doctor, attempt the repairs it recommends")
+    p.add_argument("--open", dest="open_after", action="store_true", default=None,
                    help="open each finished PDF in the default viewer")
     p.add_argument("-q", "--quiet", action="store_true", help="only print errors")
     return p
+
+
+def prefetch(sources: list[str], store, timeout: int, jobs: int,
+             report) -> None:
+    """
+    Warm the cache for every URL at once, before rendering any of them.
+
+    Only the fetching is parallel. WeasyPrint offers no thread-safety guarantee
+    and drives Pango and cairo through cffi with shared fontconfig state, so
+    rendering stays on one thread; the network, which is the part that actually
+    takes the time, does not have to. The serial render loop afterwards finds
+    everything already cached.
+    """
+    urls = [s for s in sources if s.startswith(("http://", "https://"))]
+    if len(urls) < 2 or jobs < 2 or not store.enabled:
+        return
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def warm(url: str) -> tuple[str, bool]:
+        try:
+            extractor.fetch(url, timeout=timeout, store=store)
+            return url, True
+        except Exception:
+            # A failure here is not fatal: the render loop will retry the fetch
+            # and report the error properly, with its own context.
+            return url, False
+
+    done = 0
+    with ThreadPoolExecutor(max_workers=min(jobs, len(urls))) as pool:
+        futures = [pool.submit(warm, u) for u in urls]
+        for future in as_completed(futures):
+            done += 1
+            report(done, len(urls))
 
 
 def _open_file(path: str) -> None:
@@ -145,11 +197,16 @@ def _open_file(path: str) -> None:
 def gather_sources(args: argparse.Namespace) -> list[str]:
     sources = list(args.sources)
     if args.from_list:
-        with open(args.from_list, encoding="utf-8") as fh:
-            for line in fh:
+        stream = sys.stdin if args.from_list == "-" else open(
+            args.from_list, encoding="utf-8")
+        try:
+            for line in stream:
                 line = line.strip()
                 if line and not line.startswith("#"):
                     sources.append(line)
+        finally:
+            if stream is not sys.stdin:
+                stream.close()
     return sources
 
 
@@ -167,8 +224,22 @@ def resolve_settings(args: argparse.Namespace) -> dict:
     rather than to their real defaults. Without that, --profile notes could not
     select Markdown, because --format would always look like it had been given.
     """
-    profile = profiles.get(args.profile or profiles.DEFAULT_PROFILE)
+    config = profiles.load_config()
+
+    profile = profiles.get(
+        args.profile or config.get("profile") or profiles.DEFAULT_PROFILE)
     settings = profile.settings()
+
+    # Settings that are not part of a profile, but that you would otherwise
+    # retype on every run.
+    settings["dir"] = args.dir if args.dir is not None else config.get("dir", ".")
+    settings["jobs"] = args.jobs if args.jobs is not None else int(config.get("jobs", 4))
+    settings["timeout"] = (args.timeout if args.timeout is not None
+                           else int(config.get("timeout", 30)))
+    settings["open_after"] = (args.open_after if args.open_after is not None
+                              else bool(config.get("open", False)))
+    if not config.get("cache", True):
+        settings["no_cache"] = True
 
     # An output filename is a weaker signal than a flag but a stronger one than
     # a profile default: someone writing -o piece.epub means it.
@@ -201,6 +272,21 @@ def resolve_settings(args: argparse.Namespace) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if args.cache_info:
+        info = cache_mod.Cache().stats()
+        print(f"{info['directory']}\n"
+              f"  {info['pages']} pages, {info['assets']} images, "
+              f"{info['bytes'] / 1024 / 1024:.1f} MB")
+        return 0
+
+    if args.clear_cache:
+        store = cache_mod.Cache()
+        before = store.stats()
+        store.clear()
+        print(f"Cleared {before['pages']} pages and {before['assets']} images "
+              f"({before['bytes'] / 1024 / 1024:.1f} MB) from {before['directory']}")
+        return 0
 
     if args.list_styles:
         for name in converter.available_styles():
@@ -242,10 +328,44 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 1
 
+    store = cache_mod.Cache(
+        enabled=not (args.no_cache or settings.get("no_cache")),
+        refresh=args.refresh)
+
+    def report(done: int, total: int) -> None:
+        if args.quiet or not sys.stderr.isatty():
+            return
+        print(f"\r{DIM}  fetching {done}/{total}…{OFF}", end="", file=sys.stderr)
+        if done == total:
+            print("\r" + " " * 28 + "\r", end="", file=sys.stderr)
+
+    prefetch(sources, store, settings["timeout"], settings["jobs"], report)
+
+    # `-` as a source means HTML on standard input. Stage it as a file, since
+    # the converter works from paths and the extractor needs a base URL to
+    # resolve relative links against — there isn't one for a pipe.
+    stdin_staged = None
+    if "-" in sources:
+        import tempfile as _tempfile
+        data = sys.stdin.read()
+        fd, stdin_staged = _tempfile.mkstemp(suffix=".html", prefix="w2p-stdin-")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(data)
+        sources = [stdin_staged if s == "-" else s for s in sources]
+
+    # `-o -` writes the finished file to standard output, so the tool composes
+    # with a pipeline. Progress chatter goes to stderr in that case, or it would
+    # corrupt the document.
+    to_stdout = args.output == "-"
+    if to_stdout:
+        import tempfile as _tempfile
+        args.output = os.path.join(
+            _tempfile.mkdtemp(prefix="w2p-out-"), f"out.{fmt}")
+
     failures = 0
     for index, source in enumerate(sources, start=1):
         label = source if len(source) <= 72 else source[:69] + "..."
-        if not args.quiet:
+        if not args.quiet and not to_stdout:
             counter = f"[{index}/{len(sources)}] " if len(sources) > 1 else ""
             print(f"{DIM}{counter}{OFF}{label}")
 
@@ -256,7 +376,12 @@ def main(argv: list[str] | None = None) -> int:
                 # Convert once to learn the title, then name the file after it.
                 # The staging name carries the pid so two runs writing into the
                 # same -d directory cannot overwrite each other's work.
-                out_path = converter.staging_path(args.dir, fmt)
+                out_path = converter.staging_path(settings["dir"], fmt)
+
+            def on_phase(label: str, _src=label) -> None:
+                if args.quiet or to_stdout or not sys.stderr.isatty():
+                    return
+                print(f"\r{DIM}    {label}…{OFF}\033[K", end="", file=sys.stderr)
 
             result = converter.convert(
                 source, out_path,
@@ -270,18 +395,28 @@ def main(argv: list[str] | None = None) -> int:
                 preset=settings["preset"],
                 fmt=fmt,
                 keep_html=args.keep_html,
-                timeout=args.timeout,
+                timeout=settings["timeout"],
+                store=store,
+                on_phase=on_phase,
             )
 
             if not args.output:
                 preferred = os.path.join(
-                    args.dir, converter.suggest_filename(result.title, fmt=fmt)
+                    settings["dir"], converter.suggest_filename(result.title, fmt=fmt)
                 )
                 final = converter.claim_output_path(preferred)
                 converter.finalize_output(out_path, final)
                 result.output_path = os.path.abspath(final)
 
-            if not args.quiet:
+            if not args.quiet and not to_stdout and sys.stderr.isatty():
+                print("\r\033[K", end="", file=sys.stderr)
+
+            if to_stdout:
+                with open(result.output_path, "rb") as fh:
+                    sys.stdout.buffer.write(fh.read())
+                sys.stdout.buffer.flush()
+
+            if not args.quiet and not to_stdout:
                 size_kb = os.path.getsize(result.output_path) / 1024
                 print(f"  {GREEN}✓{OFF} {BOLD}{result.output_path}{OFF}")
                 pages = f"{result.pages} pages · " if result.pages else ""
@@ -290,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
                 for warning in result.warnings:
                     print(f"    {YELLOW}!{OFF} {warning}")
 
-            if args.open_after:
+            if settings["open_after"]:
                 _open_file(result.output_path)
 
         except KeyboardInterrupt:
@@ -299,11 +434,14 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             failures += 1
             print(f"  {RED}✗ {type(exc).__name__}: {exc}{OFF}", file=sys.stderr)
-            tmp = converter.staging_path(args.dir, fmt)
+            tmp = converter.staging_path(settings["dir"], fmt)
             if os.path.exists(tmp):
                 os.remove(tmp)
 
-    if len(sources) > 1 and not args.quiet:
+    if stdin_staged and os.path.exists(stdin_staged):
+        os.remove(stdin_staged)
+
+    if len(sources) > 1 and not args.quiet and not to_stdout:
         ok = len(sources) - failures
         print(f"\n{BOLD}{ok}/{len(sources)} converted{OFF}"
               + (f" · {RED}{failures} failed{OFF}" if failures else ""))

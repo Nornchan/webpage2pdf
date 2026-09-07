@@ -117,6 +117,30 @@ Trim the title block: drop the source URL, or the italic summary line.
 .BR \-\-keep\-html " \fIFILE\fR"
 Also write the cleaned HTML. Useful for seeing exactly what was removed.
 .TP
+.BR \-j ", " \-\-jobs " \fIN\fR"
+Fetch this many pages at once when converting a batch. Default 4. Only fetching
+is parallel; rendering stays on one thread, because WeasyPrint offers no
+thread\-safety guarantee and drives Pango through cffi with shared fontconfig
+state. The network is the part that takes the time.
+.TP
+.B \-\-no\-cache
+Neither read from nor write to the fetch cache.
+.TP
+.B \-\-refresh
+Re\-fetch even when a cached copy is held. Use after a page has been updated.
+.TP
+.B \-\-cache\-info
+Report what the cache holds, and exit.
+.TP
+.B \-\-clear\-cache
+Delete everything in the cache, and exit. Nothing there is precious.
+.TP
+.B \-\-fix
+With
+.BR \-\-doctor ,
+attempt the repairs it recommends rather than only printing them. Every command
+is shown before it runs.
+.TP
 .BR \-\-timeout " \fISEC\fR"
 Network timeout per request. Default: 30.
 .TP
@@ -138,6 +162,20 @@ Print errors only.
 .TP
 .BR \-V ", " \-\-version
 Print the version and exit.
+.SH PIPELINES
+.B \-
+as a source reads HTML from standard input, and
+.B \-o \-
+writes the finished file to standard output. Progress is written to standard
+error, so it cannot corrupt the document.
+.PP
+.RS
+.nf
+pbpaste | w2p \- \-o \- > clipping.pdf
+curl \-s https://example.com/essay | w2p \- \-o \- \-f md >> log.md
+cat urls.txt | w2p \-\-from\-list \- \-d reading/
+.fi
+.RE
 .SH EXAMPLES
 .TP
 Convert a single essay:
@@ -162,6 +200,14 @@ declared language, so non\-English articles break on the right morpheme
 boundaries. Figures are atomic: an image is scaled to fit within a single page
 before rendering, and cannot be split from its caption.
 .SH FILES
+.TP
+.I ~/.config/webpage2pdf/config.toml
+Defaults you would otherwise retype:
+.BR profile ", " dir ", " jobs ", " timeout ", " open ", " cache .
+Command\-line flags override it.
+.TP
+.I ~/Library/Caches/webpage2pdf
+Fetched pages and images. Pages are held for a day, images for a month.
 .TP
 .I ~/.config/webpage2pdf/profiles/*.toml
 User\-defined profiles.

@@ -8,7 +8,8 @@ _webpage2pdf() {
     opts="-h --help -V --version -o --output -d --dir --from-list --style
           --preset --links --toc --no-toc --no-numbering --no-images --no-url
           --no-standfirst --keep-html --timeout --list-styles --list-presets
-          --open --doctor -q --quiet -p --profile -f --format --list-profiles"
+          --open --doctor -q --quiet -p --profile -f --format --list-profiles
+          -j --jobs --no-cache --refresh --cache-info --clear-cache --fix"
 
     case "${prev}" in
         --links)

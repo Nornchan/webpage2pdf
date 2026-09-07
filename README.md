@@ -77,6 +77,10 @@ w2p --from-list links.txt -d reading/
 | `--no-url` / `--no-standfirst` | Trim the title block |
 | `--keep-html FILE` | Also save the cleaned HTML, useful for checking what was removed |
 | `--list-profiles` | Show available profiles and exit |
+| `-j`, `--jobs N` | Fetch this many pages at once in a batch (default 4) |
+| `--no-cache` / `--refresh` | Ignore the fetch cache, or re-fetch despite it |
+| `--cache-info` / `--clear-cache` | Inspect or empty the cache |
+| `--doctor --fix` | Attempt the repairs `--doctor` recommends |
 | `-p`, `--profile NAME` | Named bundle of settings — see below |
 | `-f`, `--format FMT` | `pdf`, `html`, `epub` or `md` (inferred from `-o` when not given) |
 | `--preset NAME` | Page geometry: `a4`, `letter`, `a5`, `book`, `remarkable`, `two-column` |
@@ -134,6 +138,51 @@ show_url = false
 
 It appears in `--list-profiles` immediately. A user profile sharing a built-in
 name replaces it.
+
+---
+
+## Speed, pipes and settings you keep
+
+**Fetches are cached**, so converting the same article to a second format, or
+trying it against another profile, costs nothing:
+
+```bash
+w2p https://example.com/essay -o essay.pdf     # fetches
+w2p https://example.com/essay -o essay.epub    # no network at all
+```
+
+Pages are held for a day and images for a month, under
+`~/Library/Caches/webpage2pdf`. `--refresh` re-fetches, `--no-cache` bypasses it,
+`--cache-info` and `--clear-cache` inspect and empty it. Nothing there is
+precious; deleting it costs only time.
+
+**Batches fetch in parallel.** `--jobs` (default 4) warms the cache concurrently
+before rendering. Rendering stays single-threaded on purpose — WeasyPrint offers
+no thread-safety guarantee and drives Pango through cffi with shared fontconfig
+state — but the network is the part that actually takes the time. Six pages at
+0.6s latency: 5.5s serial, 2.5s parallel.
+
+**It composes.** `-` reads HTML from standard input, `-o -` writes the finished
+file to standard output, and progress goes to stderr so it cannot corrupt the
+document:
+
+```bash
+pbpaste | w2p - -o - > clipping.pdf
+curl -s https://example.com/essay | w2p - -o - -f md >> reading-log.md
+cat urls.txt | w2p --from-list - -d reading/
+```
+
+**Settings you would otherwise retype** go in `~/.config/webpage2pdf/config.toml`:
+
+```toml
+profile = "booklet"
+dir = "~/Documents/reading"
+jobs = 8
+open = true
+```
+
+Command-line flags still win over the config, and the config only supplies
+defaults — per-document choices belong on the command line.
 
 ---
 
@@ -236,7 +285,15 @@ rm -rf .venv
 ## Tests
 
 ```bash
-./.venv/bin/python tests/test_robustness.py
+./.venv/bin/python tests/test_robustness.py   # 15 checks, extraction
+./.venv/bin/python tests/test_pipeline.py     # 32 checks, formats and settings
 ```
 
-Fifteen checks covering unclosed tags, forty-deep div nesting, missing headings, unreachable images, nested tables, GB18030 encoding, mixed CJK/Arabic/Greek text, and empty documents. `tests/messy-page.html` is a realistic fixture — a page wrapped in nav, sidebar, ad slots, share buttons, a newsletter form, comments and a footer — for checking extraction by eye.
+`test_robustness.py` is fifteen checks covering unclosed tags, forty-deep div nesting, missing headings, unreachable images, nested tables, GB18030 encoding, mixed CJK/Arabic/Greek text, and empty documents. `tests/messy-page.html` is a realistic fixture — a page wrapped in nav, sidebar, ad slots, share buttons, a newsletter form, comments and a footer — for checking extraction by eye.
+
+`test_pipeline.py` is thirty-two checks over everything built on top: that each
+format produces a file of the right shape, that the EPUB is structurally valid,
+that Markdown keeps its tables, that standalone HTML has no external references,
+that presets produce sane text blocks, that flags beat profiles and profiles beat
+defaults, and that the cache is actually consulted. It isolates itself from your
+own `~/.config/webpage2pdf`.
