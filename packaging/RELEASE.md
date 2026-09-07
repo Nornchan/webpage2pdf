@@ -1,10 +1,10 @@
 # Releasing, and the Homebrew tap
 
-## Status: done for v0.1.0
+## Status: done through v0.1.1
 
 - Source repo: [github.com/Nornchan/webpage2pdf](https://github.com/Nornchan/webpage2pdf), public
-- Release: [v0.1.0](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.0), tagged against the finished commit
-- Tap: [github.com/Nornchan/homebrew-tap](https://github.com/Nornchan/homebrew-tap), public
+- Current release: [v0.1.1](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.1) — a Homebrew packaging fix; [v0.1.0](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.0) is still tagged for history
+- Tap: [github.com/Nornchan/homebrew-tap](https://github.com/Nornchan/homebrew-tap), public, formula tracks the latest release
 - Install, verified end to end from a genuinely fresh, untapped, untrusted
   machine state:
 
@@ -12,6 +12,8 @@
   brew install Nornchan/tap/webpage2pdf
   ```
 
+- The 0.1.0 → 0.1.1 upgrade itself verified with `brew upgrade webpage2pdf`
+  against a real prior install, not just a fresh one.
 - `brew test`, `brew audit --strict --online`: both exit 0, no findings.
 
 The steps below are the ones that got it there. Sections 1–2 and "Refreshing
