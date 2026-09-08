@@ -7,11 +7,7 @@ class Webpage2pdf < Formula
   desc "Turn web pages into clean A4 PDFs that read like typeset essays"
   homepage "https://github.com/Nornchan/webpage2pdf"
   url "https://github.com/Nornchan/webpage2pdf/archive/refs/tags/v0.1.4.tar.gz"
-  # PLACEHOLDER until the v0.1.4 tag is pushed. Before copying this formula to
-  # homebrew-tap, run the shasum from packaging/RELEASE.md step 2 against the
-  # real tag tarball and paste the digest here. An install against this
-  # placeholder fails loudly with a checksum mismatch — it cannot ship stale.
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "08034bcf91dad40390deacb95d6ec5d8daa51bc000c314ea1589c87eb3ad72b3"
   license "MIT"
   head "https://github.com/Nornchan/webpage2pdf.git", branch: "main"
 

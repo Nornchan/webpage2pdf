@@ -1,15 +1,9 @@
 # Releasing, and the Homebrew tap
 
-## Status: v0.1.4 staged in-repo, pending tag; released through v0.1.3
+## Status: done through v0.1.4
 
 - Source repo: [github.com/Nornchan/webpage2pdf](https://github.com/Nornchan/webpage2pdf), public
-- Latest release: [v0.1.3](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.3); v0.1.0–v0.1.2 are still tagged for history
-- **v0.1.4 is staged but not yet cut.** Version is bumped everywhere
-  (`pyproject.toml`, `__init__.py`, both man pages) and the formula `url`
-  points at the `v0.1.4` tag, but `packaging/webpage2pdf.rb`'s `sha256` is a
-  zeroed placeholder — an install against it fails loudly rather than
-  shipping stale. To release: run sections 1–2 below, paste the real digest,
-  copy the formula to the tap, run section 4.
+- Current release: [v0.1.4](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.4); v0.1.0–v0.1.3 are still tagged for history
 - Tap: [github.com/Nornchan/homebrew-tap](https://github.com/Nornchan/homebrew-tap), public, formula tracks the latest release
 - Install, verified end to end from a genuinely fresh, untapped, untrusted
   machine state:
@@ -37,7 +31,7 @@ ever needs to be recreated from scratch.
 
 ## Changelog
 
-### v0.1.4 — 2026-09-08 (staged, not yet tagged)
+### [v0.1.4](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.4) — 2026-09-08
 
 Optimises extraction for aeon.co, and closes two general classes of defect
 that a modern component-framework site exposes. An Aeon essay of ~1,350
