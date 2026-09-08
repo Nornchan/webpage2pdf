@@ -14,8 +14,12 @@ profile with a built-in name replaces it.
 from __future__ import annotations
 
 import os
-import tomllib
 from dataclasses import asdict, dataclass, fields
+
+try:
+    import tomllib  # stdlib from Python 3.11
+except ModuleNotFoundError:  # Python 3.10, the floor requires-python declares
+    import tomli as tomllib
 
 from . import presets
 

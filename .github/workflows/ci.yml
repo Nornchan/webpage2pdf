@@ -98,6 +98,7 @@ jobs:
 
       - name: Shell completions parse
         run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends zsh
           bash -n completions/webpage2pdf.bash
           zsh -n completions/_webpage2pdf
 
