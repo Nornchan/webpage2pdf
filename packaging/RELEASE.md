@@ -1,9 +1,9 @@
 # Releasing, and the Homebrew tap
 
-## Status: done through v0.1.1
+## Status: done through v0.1.3
 
 - Source repo: [github.com/Nornchan/webpage2pdf](https://github.com/Nornchan/webpage2pdf), public
-- Current release: [v0.1.1](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.1) — a Homebrew packaging fix; [v0.1.0](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.0) is still tagged for history
+- Current release: [v0.1.3](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.3); v0.1.0–v0.1.2 are still tagged for history
 - Tap: [github.com/Nornchan/homebrew-tap](https://github.com/Nornchan/homebrew-tap), public, formula tracks the latest release
 - Install, verified end to end from a genuinely fresh, untapped, untrusted
   machine state:
@@ -12,9 +12,17 @@
   brew install Nornchan/tap/webpage2pdf
   ```
 
-- The 0.1.0 → 0.1.1 upgrade itself verified with `brew upgrade webpage2pdf`
-  against a real prior install, not just a fresh one.
-- `brew test`, `brew audit --strict --online`: both exit 0, no findings.
+- **Not published to plain PyPI.** `webpage2pdf` there is a completely
+  unrelated project by a different author. Never write `pip install
+  webpage2pdf` anywhere in this repo, its docs, or a release note — the only
+  supported pip install is `pip install -e .` from a source checkout. This bit
+  a real release once already (v0.1.2's own notes, and shipped code in
+  `_bootstrap.repair()`); see the v0.1.3 changelog entry.
+- Real upgrades verified with `brew upgrade webpage2pdf` against actual prior
+  installs each time (0.1.0 → 0.1.1, then 0.1.1 → 0.1.3), not just fresh
+  installs.
+- `brew test`, `brew audit --strict --online`: both exit 0, no findings, as of
+  v0.1.3.
 
 The steps below are the ones that got it there. Sections 1–2 and "Refreshing
 dependency pins" are the ones you'll actually repeat for a future release;
@@ -22,6 +30,56 @@ dependency pins" are the ones you'll actually repeat for a future release;
 ever needs to be recreated from scratch.
 
 ## Changelog
+
+### [v0.1.3](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.3) — 2026-09-08
+
+Fixes a real supply-chain risk in `--doctor --fix`. Its repair function had a
+fallback, for the normal case of a Homebrew or packaged install with no local
+source checkout, that ran `pip install webpage2pdf` outright. `webpage2pdf` is
+already taken on PyPI by a completely unrelated project by a different author
+— this project has never been published there and has no supported plain-pip
+install path at all. Anyone hitting a broken venv on such an install and
+running `--doctor --fix` would have silently installed the wrong package.
+
+Found while double-checking v0.1.2's own release notes for accuracy: they had
+"pip install webpage2pdf" as an alternate install method, written without
+verifying it first. Corrected directly on that release once found.
+
+Fixed by never guessing an install target in that branch: it now prints both
+real install methods (`brew reinstall`, `pip install -e` from a fresh
+checkout) and does not run pip at all. Verified directly against the exact
+directory depth a real Homebrew install has (no `pyproject.toml` three levels
+up) to confirm the new message fires and no pip command is constructed.
+
+Also: the formula in the tap had been left pointing at v0.1.1's tarball —
+the v0.1.2 release cycle got interrupted by investigating CI failures before
+circling back to update it. Caught and fixed in the same pass.
+
+Verified end to end: real upgrade from an actual 0.1.1 install
+(`nornchan/tap/webpage2pdf 0.1.1 -> 0.1.3`); `brew test` and
+`brew audit --strict --online` both exit clean.
+
+### [v0.1.2](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.2) — 2026-09-08
+
+Fixes a real installation-breaking bug on Python 3.10 via pip.
+`profiles.py` imported `tomllib` unconditionally, but `tomllib` is stdlib only
+from Python 3.11. `pyproject.toml` claims `requires-python >= 3.10` and CI
+matrices 3.10, but the package could not actually be imported there — every
+command failed immediately with `ModuleNotFoundError: No module named
+'tomllib'`. Fixed with the standard fallback (`tomli` on Python < 3.11), added
+as a conditional dependency. Verified against a real Python 3.10.2
+interpreter, not just reasoned about: the backport activates there and all 47
+tests pass; a real 3.13/3.14 interpreter still correctly uses the stdlib
+module.
+
+Also fixes the CI lint job, which had no `zsh` installed on its
+`ubuntu-latest` runner and so failed checking the zsh completion file's
+syntax — an oversight in the workflow itself, not a defect in the completion
+file.
+
+Found while verifying that the newly added GitHub release badge on the README
+renders correctly: it did — what it rendered was "CI - failing," a real,
+accurate signal, not a false one.
 
 ### [v0.1.1](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.1) — 2026-09-07
 
@@ -51,8 +109,9 @@ untrusted machine state; `brew upgrade webpage2pdf` against a real prior
 
 ### [v0.1.0](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.0) — 2026-09-07
 
-First packaged release. Installable via pip (`webpage2pdf` / `w2p` /
-`webpage2pdf-server` entry points) or Homebrew; bundled Literata typography
+First packaged release. Installable via `pip install -e .` from a source
+checkout (`webpage2pdf` / `w2p` / `webpage2pdf-server` entry points) or
+Homebrew — not from plain PyPI, see the Status note above; bundled Literata typography
 with a full OpenType layer; four output formats (PDF/HTML/EPUB/Markdown);
 seven profiles; six page presets; a fetch cache; parallel batch conversion;
 CI across Linux and macOS; and four real, silent extraction bugs found and
