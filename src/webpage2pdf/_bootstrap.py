@@ -163,11 +163,22 @@ def repair() -> int:
         print(f"  Missing Python packages: {', '.join(missing)}")
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))))
-        target = project_root if os.path.isfile(
-            os.path.join(project_root, "pyproject.toml")) else "webpage2pdf"
-        changed |= _run([sys.executable, "-m", "pip", "install", "-e", target]
-                        if target != "webpage2pdf"
-                        else [sys.executable, "-m", "pip", "install", "webpage2pdf"])
+        if os.path.isfile(os.path.join(project_root, "pyproject.toml")):
+            changed |= _run(
+                [sys.executable, "-m", "pip", "install", "-e", project_root])
+        else:
+            # No source checkout to reinstall from — this is a Homebrew or
+            # packaged install with a broken venv. `pip install webpage2pdf`
+            # is deliberately not attempted here: that name is already taken
+            # on PyPI by an unrelated project (a different "webpage2pdf" by a
+            # different author), so guessing would silently install the wrong
+            # package instead of fixing this one. There is no supported plain
+            # PyPI install of this project to fall back to.
+            print("  No source checkout found to reinstall from.")
+            print("  Reinstall using whichever method you installed with:")
+            print("      brew reinstall webpage2pdf")
+            print("  or, from a fresh checkout of the source:")
+            print("      pip install -e /path/to/webpage2pdf")
 
     if not changed:
         print("  Nothing to repair.\n")
