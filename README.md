@@ -207,11 +207,13 @@ defaults — per-document choices belong on the command line.
 
 **2. Removes the furniture.** Two passes, deliberately. A broad sweep first for nav, footers, sidebars, cookie banners and modals; then, once the article is identified, a gentler sweep for share bars, newsletter forms, related-story rails, comments and ad slots. A section is spared if it turns out to be prose-heavy, so a genuine "Related concepts" heading in an explainer survives while a link rail does not.
 
+Anything the page itself marks hidden-when-printing — `print:hidden`, `d-print-none`, `hidden-print` and the rest — is taken at its word and dropped in the first sweep. Component-framework sites use it for exactly the things that don't belong on paper: share bars, and the "more from this site" rail that often sits *inside* `<main>` beside the article where the scorer would otherwise keep it.
+
 Also handled: tables of contents, "edit" permalinks glued to headings, citation superscripts pointing at footnotes that aren't coming with us, and infobox sidebars.
 
 **3. Rebuilds the structure.** Headings are re-levelled so the hierarchy is coherent — if a site starts its sections at `h3`, everything slides up so the top level is `h2`. Div-wrapped prose becomes real paragraphs, `<b>`/`<i>` become `<strong>`/`<em>`, definition lists become bullets, every site class and inline style is stripped, and captions orphaned in sibling divs are pulled into the `<figure>` they describe.
 
-**4. Fixes the images.** Lazy-loaded sources are recovered from `data-src`, `data-original` and friends; `srcset` resolves to the highest-resolution candidate so print stays sharp. Tracking pixels, spacers and icons are dropped on size. Then the important part: **any image tall enough to overflow the text block is scaled down so it fits within a single page.** A 900×2400 diagram becomes 73mm wide rather than being cut in half.
+**4. Fixes the images.** Lazy-loaded sources are recovered from `data-src`, `data-original` and friends; `srcset` resolves to the highest-resolution candidate so print stays sharp. Tracking pixels, spacers and icons are dropped on size. An image that appears more than once — the same asset shipped as a separate `<img>` per responsive breakpoint, say — is kept once. Then the important part: **any image tall enough to overflow the text block is scaled down so it fits within a single page.** A 900×2400 diagram becomes 73mm wide rather than being cut in half.
 
 **5. Typesets it.** A4 by default, in bundled Literata — old-style figures in running text, lining tabular figures in tables, justified with hyphenation in the source page's own language, first-line indents. Running heads carry the article title on the left and the current section on the right. Documents with at least four sections and 1500 words get a contents list whose page numbers come from CSS `target-counter`, so they stay correct without a second render.
 
@@ -300,12 +302,12 @@ rm -rf .venv
 ## Tests
 
 ```bash
-./.venv/bin/python tests/test_robustness.py   # 15 checks, extraction
+./.venv/bin/python tests/test_robustness.py   # 16 checks, extraction
 ./.venv/bin/python tests/test_pipeline.py     # 32 checks, formats and settings
-./.venv/bin/python tests/test_realworld.py    # 23 checks, real production markup
+./.venv/bin/python tests/test_realworld.py    # 28 checks, real production markup
 ```
 
-`test_robustness.py` is fifteen checks covering unclosed tags, forty-deep div nesting, missing headings, unreachable images, nested tables, GB18030 encoding, mixed CJK/Arabic/Greek text, and empty documents. `tests/messy-page.html` is a realistic fixture — a page wrapped in nav, sidebar, ad slots, share buttons, a newsletter form, comments and a footer — for checking extraction by eye.
+`test_robustness.py` is sixteen checks covering unclosed tags, forty-deep div nesting, missing headings, unreachable images, nested tables, GB18030 encoding, mixed CJK/Arabic/Greek text, empty documents, and a hero image shipped once per responsive breakpoint beside a `print:hidden` recommendation rail. `tests/messy-page.html` is a realistic fixture — a page wrapped in nav, sidebar, ad slots, share buttons, a newsletter form, comments and a footer — for checking extraction by eye.
 
 `test_pipeline.py` is thirty-two checks over everything built on top: that each
 format produces a file of the right shape, that the EPUB is structurally valid,
@@ -315,17 +317,20 @@ defaults, and that the cache is actually consulted. It isolates itself from your
 own `~/.config/webpage2pdf`.
 
 `test_realworld.py` runs extraction against unmodified, committed snapshots of
-real pages — a Wikipedia article, a Python docs page, and a 1990s-style
-hand-written essay with no semantic tags at all — rather than only hand-written
-synthetic cases. That corpus found four real, silent bugs no synthetic fixture
-happened to reproduce: a page whose own `<html class>` coincidentally matched
-the furniture-stripping regex and destroyed the entire document; a heading
-template that left every section heading with no *sibling* of its own, so it
-was misjudged as empty and deleted; scheme-relative image URLs resolving to a
-broken `file://` address on any locally saved page — silently stripping every
-image, on exactly the workaround this README recommends for JavaScript-rendered
-sites; and an HTML comment carrying internal cache metadata that got promoted
-into visible article text. See
+real pages — a Wikipedia article, a Python docs page, a 1990s-style
+hand-written essay with no semantic tags at all, and an Aeon essay in modern
+Next.js/Tailwind markup — rather than only hand-written synthetic cases. That
+corpus found six real bugs no synthetic fixture happened to reproduce: a page
+whose own `<html class>` coincidentally matched the furniture-stripping regex
+and destroyed the entire document; a heading template that left every section
+heading with no *sibling* of its own, so it was misjudged as empty and
+deleted; scheme-relative image URLs resolving to a broken `file://` address on
+any locally saved page — silently stripping every image, on exactly the
+workaround this README recommends for JavaScript-rendered sites; an HTML
+comment carrying internal cache metadata that got promoted into visible
+article text; a hero image shipped once per responsive breakpoint and printed
+twice back to back; and a `print:hidden` "recommended articles" rail the
+content scorer pulled in with the article body. See
 [`tests/fixtures/real-world/MANIFEST.md`](tests/fixtures/real-world/MANIFEST.md)
 for the full story, sources, and licensing of each snapshot. It runs entirely
 offline against the committed fixtures — no network access, no flakiness.

@@ -6,8 +6,12 @@ class Webpage2pdf < Formula
 
   desc "Turn web pages into clean A4 PDFs that read like typeset essays"
   homepage "https://github.com/Nornchan/webpage2pdf"
-  url "https://github.com/Nornchan/webpage2pdf/archive/refs/tags/v0.1.3.tar.gz"
-  sha256 "8f005a25e8f2b760c1c7a469f93bb03e89696c851b52b2c6bf88a176d1386db7"
+  url "https://github.com/Nornchan/webpage2pdf/archive/refs/tags/v0.1.4.tar.gz"
+  # PLACEHOLDER until the v0.1.4 tag is pushed. Before copying this formula to
+  # homebrew-tap, run the shasum from packaging/RELEASE.md step 2 against the
+  # real tag tarball and paste the digest here. An install against this
+  # placeholder fails loudly with a checksum mismatch — it cannot ship stale.
+  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "MIT"
   head "https://github.com/Nornchan/webpage2pdf.git", branch: "main"
 
@@ -237,6 +241,38 @@ class Webpage2pdf < Formula
     cleaned = (testpath/"clean.html").read
     assert_match "sufficient prose", cleaned
     refute_match "Copyright", cleaned
+
+    # The page's own "hide when printing" markup is honoured: a recommended-
+    # articles rail marked print:hidden must not survive, even sitting inside
+    # <main> beside the article (v0.1.4, Aeon support). The companion fix —
+    # a hero image shipped once per responsive breakpoint collapsing to a
+    # single <img> — needs a real downloadable image and so is covered by the
+    # offline fixtures in tests/, which CI runs on every push.
+    (testpath/"responsive.html").write <<~HTML
+      <!DOCTYPE html>
+      <html lang="en"><head><meta charset="utf-8">
+      <title>Responsive</title></head><body><main>
+        <article>
+          <h1>Responsive</h1>
+          <div class="hero md:hidden print:hidden"><img src="hero.jpg" alt="lead image on small screens"></div>
+          <div class="hero hidden md:block print:hidden"><img src="hero.jpg" alt="lead image on large screens"></div>
+          #{"<p>Real article prose with commas, clauses and enough length to " \
+            "read as a genuine paragraph rather than a caption.</p>" * 12}
+        </article>
+        <div class="recirc print:hidden">
+          <h2>More from us</h2>
+          <a href="/a">A recommended piece nobody asked to print</a>
+          <p>Teaser copy for the recommendation rail.</p>
+        </div>
+      </main></body></html>
+    HTML
+
+    system bin/"webpage2pdf", testpath/"responsive.html", "--no-images",
+           "-o", testpath/"r.pdf", "--keep-html", testpath/"r.html", "--quiet"
+    r = (testpath/"r.html").read
+    assert_match "Real article prose", r
+    refute_match "recommendation rail", r
+    refute_match "More from us", r
 
     assert_match version.to_s, shell_output("#{bin}/w2p --version")
     assert_match "essay", shell_output("#{bin}/webpage2pdf --list-styles")

@@ -1,9 +1,15 @@
 # Releasing, and the Homebrew tap
 
-## Status: done through v0.1.3
+## Status: v0.1.4 staged in-repo, pending tag; released through v0.1.3
 
 - Source repo: [github.com/Nornchan/webpage2pdf](https://github.com/Nornchan/webpage2pdf), public
-- Current release: [v0.1.3](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.3); v0.1.0–v0.1.2 are still tagged for history
+- Latest release: [v0.1.3](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.3); v0.1.0–v0.1.2 are still tagged for history
+- **v0.1.4 is staged but not yet cut.** Version is bumped everywhere
+  (`pyproject.toml`, `__init__.py`, both man pages) and the formula `url`
+  points at the `v0.1.4` tag, but `packaging/webpage2pdf.rb`'s `sha256` is a
+  zeroed placeholder — an install against it fails loudly rather than
+  shipping stale. To release: run sections 1–2 below, paste the real digest,
+  copy the formula to the tap, run section 4.
 - Tap: [github.com/Nornchan/homebrew-tap](https://github.com/Nornchan/homebrew-tap), public, formula tracks the latest release
 - Install, verified end to end from a genuinely fresh, untapped, untrusted
   machine state:
@@ -30,6 +36,41 @@ dependency pins" are the ones you'll actually repeat for a future release;
 ever needs to be recreated from scratch.
 
 ## Changelog
+
+### v0.1.4 — 2026-09-08 (staged, not yet tagged)
+
+Optimises extraction for aeon.co, and closes two general classes of defect
+that a modern component-framework site exposes. An Aeon essay of ~1,350
+words was coming out as a nine-page PDF.
+
+- **The hero image printed twice, back to back.** Sites built for
+  responsive breakpoints ship the lead image once per breakpoint — a
+  separate `<img>` for mobile and for desktop, same asset — and nothing
+  collapsed those variants. Fixed with a `seen_src` set in
+  `_process_images`: first resolved source wins, later duplicates are
+  dropped. Also covers `<picture>` and a hero duplicated inside and outside
+  the article wrapper. (The Aeon mobile copy additionally carried raw HTML
+  in its `alt`, which had been surfacing as escaped `<p>` tags in the
+  caption — gone with the duplicate.)
+- **The "more from this site" rail landed in the article.** Aeon's
+  recommended-article cards — six of them, each with a thumbnail and teaser
+  — sit in a `<div class="print:hidden">` that is a sibling of the article
+  *inside* `<main>`, and the content scorer picks `<main>`. Fixed in
+  `_strip_global` by honouring the page's own print-suppression classes
+  (`print:hidden`, `d-print-none`, `hidden-print`, `no-print`, …): when the
+  whole job is rendering for print, "hide this when printing" is the most
+  reliable furniture signal there is. A node that is essentially just an
+  image is spared, so a hero the site swaps for a print-specific copy is
+  left for the de-dup and size filters to judge.
+
+Regression-guarded three ways: a new committed fixture
+`tests/fixtures/real-world/aeon-persuasion-manipulation.html` with five
+assertions in `test_realworld.py`; a synthetic end-to-end case in
+`test_robustness.py` exercising both fixes with a real local image; and a
+`print:hidden`-rail assertion in the formula's `test do` block, so a
+`brew test` fails if a future packaging change regresses it. Full suite
+76 checks (16 + 32 + 28), all green; CI runs it on Linux and macOS on
+every push.
 
 ### [v0.1.3](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.3) — 2026-09-08
 
