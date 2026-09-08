@@ -66,6 +66,12 @@ assertions in `test_realworld.py`; a synthetic end-to-end case in
 76 checks (16 + 32 + 28), all green; CI runs it on Linux and macOS on
 every push.
 
+Verified end to end: real upgrade from an actual 0.1.3 install
+(`nornchan/tap/webpage2pdf 0.1.3 -> 0.1.4`, built from source);
+`brew test` and `brew audit --strict --online` both exit clean; a live
+aeon.co conversion with the installed binary now renders 4 pages / 1
+image (was 9 pages / 8 images).
+
 ### [v0.1.3](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.3) — 2026-09-08
 
 Fixes a real supply-chain risk in `--doctor --fix`. Its repair function had a
