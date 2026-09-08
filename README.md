@@ -1,6 +1,7 @@
 # webpage2pdf
 
 [![CI](https://github.com/Nornchan/webpage2pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/Nornchan/webpage2pdf/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Nornchan/webpage2pdf)](https://github.com/Nornchan/webpage2pdf/releases/latest)
 
 Turns web pages into clean A4 PDFs that read like typeset essays instead of screenshots of a website.
 
