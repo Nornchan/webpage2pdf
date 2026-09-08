@@ -11,8 +11,11 @@ furniture-stripping regex, a heading with no sibling of its own because the
 skin wraps it alone in a div, a locally saved page's scheme-relative image
 URLs, an HTML comment carrying internal cache metadata. All four caused real,
 silent data loss or content corruption, and all four are now regression-
-guarded here. See tests/fixtures/real-world/MANIFEST.md for the full story
-and the source/license of each snapshot.
+guarded here. A later snapshot (Aeon) adds two visible-junk defects: a hero
+image shipped once per breakpoint and printed twice, and a print:hidden
+"recommended articles" rail the scorer pulled in with the article body.
+See tests/fixtures/real-world/MANIFEST.md for the full story and the
+source/license of each snapshot.
 
 Deliberately offline and deterministic: every check runs with
 download_images=False, and the one assertion that depends on the earlier
@@ -110,6 +113,42 @@ def main() -> int:
     for junk in ("jump to navigation", "edit section", "from wikipedia,",
                 "download qr code", "printable version"):
         check(f"wikipedia: no leaked chrome ({junk!r})", junk not in lowered)
+
+    # ---- Aeon: Next.js/Tailwind, responsive dupes + a print rail --------
+    # Modern component markup: the hero image is shipped twice (a mobile
+    # <img> and a desktop <img>, same asset), and a "more from Aeon" rail of
+    # recommended articles — each a card with its own thumbnail — sits in a
+    # <div class="print:hidden"> sibling of the article, inside <main>. The
+    # scorer picks <main>, so without honouring print:hidden the rail's text
+    # and six thumbnails land in the PDF; without image de-dup the hero prints
+    # twice in a row. Run offline: download_images=False, and the image count
+    # is taken from the cleaned DOM before the (networked) download stage.
+    aeon = extract_fixture(
+        "aeon-persuasion-manipulation.html",
+        "https://aeon.co/ideas/how-to-tell-the-difference-between-persuasion-and-manipulation")
+    check("aeon: article text recovered",
+          1200 < aeon.word_count < 1600, aeon.word_count)
+    check("aeon: recommended-article text did not leak in",
+          "Moral grandstanding" not in aeon.body_html
+          and "neurointervention" not in aeon.body_html
+          and "we-arent-really-in-control" not in aeon.body_html)
+    check("aeon: the article's own conclusion is still present",
+          "essential immorality of manipulation" in aeon.body_html)
+    check("aeon: raw markup from a nested alt attribute did not leak",
+          "&lt;p&gt;" not in aeon.body_html)
+
+    # After cleaning, exactly one <img> survives: the responsive hero
+    # duplicate is collapsed and none of the six recommended-article
+    # thumbnails remain. Checked on the cleaned DOM so no network is needed.
+    from bs4 import BeautifulSoup  # noqa: PLC0415 - local to this offline check
+    with open(os.path.join(FIXTURES, "aeon-persuasion-manipulation.html"),
+              encoding="utf-8", errors="replace") as fh:
+        _aeon_soup = BeautifulSoup(fh.read(), "lxml")
+    extractor._strip_global(_aeon_soup)
+    _aeon_root = extractor._find_content_root(_aeon_soup).extract()
+    extractor._clean_content(_aeon_root)
+    check("aeon: one image survives cleaning (hero de-duped, rail thumbnails gone)",
+          len(_aeon_root.find_all("img")) == 1, len(_aeon_root.find_all("img")))
 
     # ---- Python docs: a clean-case control ------------------------------
     # No known bug lives here; this is the fixture that tells you a change

@@ -162,6 +162,59 @@ def run() -> int:
         failed += 1
         print(f"  FAIL  {'gb18030 encoding':32} {exc}")
 
+    # Image de-dup and print-hidden furniture: a page that ships its hero
+    # image twice (the responsive-markup pattern — one <img> per breakpoint)
+    # and puts a "related articles" rail in a print:hidden block. The hero
+    # must print once; the rail must not print at all.
+    try:
+        from PIL import Image  # noqa: PLC0415
+
+        hero = os.path.join(tmp, "hero.png")
+        Image.new("RGB", (900, 560), (120, 90, 60)).save(hero)
+        rel = os.path.join(tmp, "related.png")
+        Image.new("RGB", (600, 400), (60, 90, 120)).save(rel)
+        hero_url = "file://" + hero
+        rel_url = "file://" + rel
+
+        html = (
+            "<html lang='en'><head><title>Dupe hero</title></head><body><main>"
+            "<article><h1>The article</h1>"
+            f"<div class='hero md:hidden print:hidden'><img src='{hero_url}' "
+            "alt='the lead photograph, shown on small screens'></div>"
+            f"<div class='hero hidden md:block print:hidden'><img src='{hero_url}' "
+            "alt='the lead photograph, shown on large screens'></div>"
+            + "".join(f"<p>Body paragraph {i} with enough real words in it to "
+                      f"register as genuine article prose rather than a caption.</p>"
+                      for i in range(10))
+            + "</article>"
+            "<div class='recirc print:hidden'><h2>More from us</h2>"
+            f"<a href='https://example.com/x'><img src='{rel_url}' "
+            "alt='thumbnail for a recommended article'>An unrelated recommended piece</a>"
+            "<p>Recommended teaser text that must never reach the PDF.</p></div>"
+            "</main></body></html>")
+
+        path = os.path.join(tmp, "dupe-hero.html")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(html)
+
+        art = extractor.extract(html, "file://" + path, tempfile.mkdtemp())
+        ok = (art.images == 1
+              and art.body_html.count("<img") == 1
+              and "recommended" not in art.body_html.lower()
+              and "More from us" not in art.body_html)
+        if ok:
+            passed += 1
+            print(f"  PASS  {'dedup hero + print:hidden rail':32} 1 image, no recirc")
+        else:
+            failed += 1
+            print(f"  FAIL  {'dedup hero + print:hidden rail':32} "
+                  f"images={art.images}, imgtags={art.body_html.count('<img')}")
+    except ImportError:
+        print(f"  SKIP  {'dedup hero + print:hidden rail':32} Pillow not installed")
+    except Exception as exc:
+        failed += 1
+        print(f"  FAIL  {'dedup hero + print:hidden rail':32} {type(exc).__name__}: {exc}")
+
     print(f"\n  {passed} passed, {failed} failed")
     return 1 if failed else 0
 

@@ -61,6 +61,21 @@ STRUCTURAL_JUNK = re.compile(
     re.I,
 )
 
+# Elements the page itself marks as hidden when printing. Our whole job is to
+# render for print, so an explicit "not when printing" directive from the site
+# is the most reliable furniture signal there is — publishers hang it on the
+# duplicated responsive copies of a hero image, on share bars, and on the
+# "more from this site" rails below the article. Tailwind writes it
+# `print:hidden`; Bootstrap and hand-rolled stylesheets use the rest.
+PRINT_HIDDEN = re.compile(
+    r"(^|\s)("
+    r"print:hidden|print:none|print:sr-only|"
+    r"d-print-none|hidden-print|hidden--print|no-print|noprint|is-print-hidden|"
+    r"u-hidden-print|visually-hidden-print|screen-only|screenreader-print"
+    r")(\s|$)",
+    re.I,
+)
+
 # Anchors that are page furniture rather than prose: "edit", "¶", "jump to".
 JUNK_ANCHOR_TEXT = re.compile(
     r"^\s*(edit|edit source|\[edit\]|¶|#|§|link|permalink|jump to[\w\s]*|"
@@ -283,6 +298,25 @@ def _strip_global(soup: BeautifulSoup) -> None:
         _kill(soup.find_all(attrs={"role": role}))
 
     _kill(soup.find_all(["nav", "aside"]))
+
+    # Honour the page's own "hide when printing" markup. A publisher marks
+    # something print-hidden when a print-visible equivalent exists or the
+    # content does not belong on paper: share bars, cookie prompts, and the
+    # "more from this site" rails below the article all carry it.
+    #
+    # The one exception is a node that is essentially just an image — a hero or
+    # figure the site hides only because it has a separate print copy, or to
+    # save a reader's ink. Those are left for the image de-dup and icon/size
+    # filters to judge, which they do better. Share bars carry no image; the
+    # recommendation rails carry paragraphs of link text — both still go.
+    for el in soup.find_all(True):
+        if _gone(el) or el.name in ("html", "body"):
+            continue
+        if not _matches(el, PRINT_HIDDEN):
+            continue
+        if el.find("img") and len(el.get_text(strip=True)) < 200:
+            continue
+        el.decompose()
 
     # <footer> and <header> only go if they sit outside an <article>.
     for el in soup.find_all(["footer", "header"]):
@@ -839,6 +873,7 @@ def _process_images(root: Tag, base_url: str, asset_dir: str,
     """
     session = requests.Session()
     kept = 0
+    seen_src: set[str] = set()
 
     for img in root.find_all("img"):
         alt = (img.get("alt") or "").strip()
@@ -847,6 +882,15 @@ def _process_images(root: Tag, base_url: str, asset_dir: str,
         if not src:
             img.decompose()
             continue
+
+        # The same asset routinely appears more than once — a <picture> with a
+        # separate mobile and desktop <img>, or a hero duplicated inside and
+        # outside the article wrapper. Keep the first, drop the rest, so it does
+        # not print twice in a row.
+        if src in seen_src:
+            img.decompose()
+            continue
+        seen_src.add(src)
 
         # Declared dimensions rule out icons before we spend a request on them.
         try:
