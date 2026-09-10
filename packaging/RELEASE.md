@@ -63,6 +63,13 @@ Thirteen new checks in `test_pipeline.py`, against a local server that refuses
 requests the way the real ones do — no network, and no dependence on which
 sites happen to be walled this week.
 
+Verified end to end: real upgrade from an actual 0.1.4 install
+(`nornchan/tap/webpage2pdf 0.1.4 -> 0.1.5`, built from source in 3m25s);
+`brew test` and `brew audit --strict --online` both exit 0; the installed
+binary reports the NYT URL that prompted this as a named DataDome refusal
+with both routes round it, and still converts an unwalled page (a Wikipedia
+article, 39 pages / 16 images) unchanged.
+
 ### [v0.1.4](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.4) — 2026-09-08
 
 Optimises extraction for aeon.co, and closes two general classes of defect
