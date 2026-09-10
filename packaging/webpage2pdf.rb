@@ -6,8 +6,8 @@ class Webpage2pdf < Formula
 
   desc "Turn web pages into clean A4 PDFs that read like typeset essays"
   homepage "https://github.com/Nornchan/webpage2pdf"
-  url "https://github.com/Nornchan/webpage2pdf/archive/refs/tags/v0.1.4.tar.gz"
-  sha256 "08034bcf91dad40390deacb95d6ec5d8daa51bc000c314ea1589c87eb3ad72b3"
+  url "https://github.com/Nornchan/webpage2pdf/archive/refs/tags/v0.1.5.tar.gz"
+  sha256 "9f8130f29350b9b1b5d4449057db813d0a5ef151400067ac8a05ea9e444316af"
   license "MIT"
   head "https://github.com/Nornchan/webpage2pdf.git", branch: "main"
 
