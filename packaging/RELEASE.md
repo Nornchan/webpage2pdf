@@ -1,9 +1,9 @@
 # Releasing, and the Homebrew tap
 
-## Status: done through v0.1.4
+## Status: done through v0.1.5
 
 - Source repo: [github.com/Nornchan/webpage2pdf](https://github.com/Nornchan/webpage2pdf), public
-- Current release: [v0.1.4](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.4); v0.1.0–v0.1.3 are still tagged for history
+- Current release: [v0.1.5](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.5); v0.1.0–v0.1.4 are still tagged for history
 - Tap: [github.com/Nornchan/homebrew-tap](https://github.com/Nornchan/homebrew-tap), public, formula tracks the latest release
 - Install, verified end to end from a genuinely fresh, untapped, untrusted
   machine state:
@@ -31,7 +31,7 @@ ever needs to be recreated from scratch.
 
 ## Changelog
 
-### v0.1.5 — unreleased
+### [v0.1.5](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.5) — 2026-09-10
 
 Fixes what a site's bot wall used to look like from the command line. A New
 York Times URL reported `HTTPError: 403 Client Error: Forbidden`, which names
