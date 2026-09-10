@@ -31,6 +31,38 @@ ever needs to be recreated from scratch.
 
 ## Changelog
 
+### v0.1.5 — unreleased
+
+Fixes what a site's bot wall used to look like from the command line. A New
+York Times URL reported `HTTPError: 403 Client Error: Forbidden`, which names
+no cause, suggests no fix, and reads like a bug in the tool. It is not: the
+article sits behind DataDome, which serves a JavaScript challenge to anything
+that is not a browser running it.
+
+- **Refusals are now their own kind of failure.** `extractor.FetchBlocked`
+  covers 401, 403, 429 and 451, recognises the five commercial walls
+  (DataDome, Cloudflare, PerimeterX, Akamai, Imperva) from what they serve
+  with the refusal, and carries a message that names the wall and the two
+  ways round it. The CLI prints that message as written; the web app shows
+  it in the failed row.
+- **`--cookies FILE`.** Lends the run the browser session you already have,
+  for a page behind a login or a wall your browser has already cleared.
+  Netscape `cookies.txt`, the JSON array most extensions export, and a
+  pasted `Cookie:` header line are all read; the cookies go to the page and
+  its images. Session cookies (expiry `0`) are kept rather than discarded as
+  expired, which is the whole point of them. A bad path fails before the
+  first request rather than once per source.
+- **A fuller, honest request.** `Sec-Fetch-*`, `Upgrade-Insecure-Requests`
+  and a proper `Accept` go out with the page fetch, and images now carry the
+  page as their referer — hotlink protection was silently costing
+  illustrations. An unbranded 403 is retried once with a referer before it
+  is reported.
+- **A 404 is still a 404.** Only the refusal statuses take the new path.
+
+Thirteen new checks in `test_pipeline.py`, against a local server that refuses
+requests the way the real ones do — no network, and no dependence on which
+sites happen to be walled this week.
+
 ### [v0.1.4](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.4) — 2026-09-08
 
 Optimises extraction for aeon.co, and closes two general classes of defect

@@ -25,6 +25,7 @@ import webbrowser
 from . import __version__
 from . import cache as cache_mod
 from . import converter
+from . import extractor
 from . import presets
 from . import profiles
 from . import writers
@@ -124,6 +125,9 @@ PAGE = r"""<!DOCTYPE html>
   .row .body { flex:1; min-width:0; }
   .row .name { font-weight:600; word-break:break-word; }
   .row .meta { color:var(--soft); font-size:11.5px; margin-top:3px; }
+  /* A refused fetch answers with instructions, and instructions need
+     their line breaks. */
+  .row.err .meta { white-space:pre-line; }
   .row .warn { color:var(--warn); background:var(--warn-bg); border-radius:5px;
                padding:4px 7px; margin-top:6px; font-size:11.5px; }
   .row a.dl {
@@ -521,6 +525,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "warnings": result.warnings,
             })
 
+        except extractor.FetchBlocked as exc:
+            # Already phrased for a person, and it says what to do next; a
+            # class name in front of it would only get in the way.
+            self._json(200, {"ok": False, "error": str(exc)})
         except Exception as exc:
             self._json(200, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
         finally:

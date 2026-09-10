@@ -144,6 +144,19 @@ is shown before it runs.
 .BR \-\-timeout " \fISEC\fR"
 Network timeout per request. Default: 30.
 .TP
+.BR \-\-cookies " \fIFILE\fR"
+Send the cookies in
+.I FILE
+with every request, so a page you can only read while signed in converts as the
+signed\-in you. Three formats are read: Netscape
+.IR cookies.txt ,
+the JSON array most browser extensions export, and a single
+.RI \(lq name=value;\ name=value \(rq
+header line pasted from a browser's network tab. Sites behind a JavaScript bot
+wall refuse a scripted request outright \(em see
+.B FETCH ERRORS
+below.
+.TP
 .B \-\-list\-styles
 Print available stylesheet names and exit.
 .TP
@@ -162,6 +175,35 @@ Print errors only.
 .TP
 .BR \-V ", " \-\-version
 Print the version and exit.
+.SH FETCH ERRORS
+Some sites answer a scripted request with a refusal rather than the page.
+.B webpage2pdf
+names what turned the request away, and what to do about it:
+.TP
+.B HTTP 403, with a named bot wall
+DataDome, Cloudflare, PerimeterX, Akamai and Imperva serve a JavaScript
+challenge instead of the article. Nothing sent from a script satisfies one.
+Open the page in a browser and either save it (\(lqWeb Page, Complete\(rq) and
+convert the file, or export that browser's cookies and pass them with
+.BR \-\-cookies .
+.TP
+.B HTTP 403, unbranded
+Often hotlink protection. The request is retried once naming the site's own
+front page as the referer, which is what such a check is looking for, before
+the refusal is reported.
+.TP
+.B HTTP 401
+The page is behind a login:
+.B \-\-cookies
+is the way in.
+.TP
+.B HTTP 429
+Too many requests too quickly. Wait, and fetch large batches from one site with
+.BR \-j " 1."
+.PP
+A page that fetches but yields almost no text is a different problem \(em it is
+rendered by JavaScript in the browser \(em and is reported as a warning on the
+finished file rather than an error.
 .SH PIPELINES
 .B \-
 as a source reads HTML from standard input, and

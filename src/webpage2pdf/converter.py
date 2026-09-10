@@ -205,7 +205,8 @@ def convert(source: str, output_path: str, *,
             store: "cache_mod.Cache | None" = None,
             on_phase=None,
             keep_html: str | None = None,
-            timeout: int = 30) -> Result:
+            timeout: int = 30,
+            cookies=None) -> Result:
     """
     Convert a URL or local .html file into an A4 PDF.
 
@@ -218,6 +219,9 @@ def convert(source: str, output_path: str, *,
     `store` is an optional cache.Cache; without one every run re-fetches.
     `on_phase` is called with a short label as each stage begins, so a caller
     can show where the time is going — a slow fetch otherwise looks like a hang.
+    `cookies` is a path to a cookie file (or a jar from extractor.load_cookies),
+    used for both the page and its images, so a page you can only read while
+    signed in converts as the signed-in you.
     Returns a Result describing what was produced.
     """
     def phase(label: str) -> None:
@@ -229,7 +233,7 @@ def convert(source: str, output_path: str, *,
         phase("fetching")
         if source.startswith(("http://", "https://")):
             raw_html, base_url = extractor.fetch(source, timeout=timeout,
-                                                 store=store)
+                                                 store=store, cookies=cookies)
         else:
             path = os.path.abspath(os.path.expanduser(source))
             if not os.path.isfile(path):
@@ -248,6 +252,7 @@ def convert(source: str, output_path: str, *,
             text_height_mm=page.text_height_mm,
             download_images=images,
             store=store,
+            cookies=cookies,
         )
 
         phase("rendering")

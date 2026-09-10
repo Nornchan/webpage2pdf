@@ -18,6 +18,7 @@ for cmd in webpage2pdf w2p
     complete -c $cmd -l no-standfirst    -d "Omit the italic summary line"
     complete -c $cmd -l keep-html -r -F  -d "Also save the cleaned HTML"
     complete -c $cmd -l timeout -x       -d "Network timeout per request (seconds)"
+    complete -c $cmd -l cookies -r -F    -d "Send cookies from a file (cookies.txt, JSON, or a header line)"
     complete -c $cmd -s p -l profile -x -a "(webpage2pdf --list-profiles 2>/dev/null | string split -f1 ' ')" -d "Named bundle of settings"
     complete -c $cmd -s f -l format -x -a "pdf\t'Typeset for paper' html\t'Self-contained file' epub\t'Reflowable' md\t'Markdown'" -d "Output format"
     complete -c $cmd -l list-profiles    -d "Show available profiles and exit"
