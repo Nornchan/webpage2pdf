@@ -166,24 +166,241 @@ class Article:
 # Fetching
 # --------------------------------------------------------------------------
 
-def fetch(url: str, timeout: int = 30, store=None) -> tuple[str, str]:
+# A bare User-Agent is not what a browser sends. Sites that turn away thin
+# requests generally look at the whole set — the fetch metadata headers, the
+# hint that this is a top-level navigation — so we send the set, not one line
+# of it. This is not a disguise: the request is still a plain GET from a
+# script, and the walls below see through it. It just stops well-behaved
+# origins from mistaking a normal request for a scraper.
+BROWSER_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,"
+              "image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+}
+
+# Commercial bot walls, recognised from what they serve with the refusal.
+# Naming the wall matters because it tells the user what kind of problem they
+# have: none of these can be talked round with headers — they want a browser
+# that runs their JavaScript challenge — so the fix is always to bring the
+# page (or the session) from a browser rather than to retry differently.
+BOT_WALLS = (
+    (re.compile(r"captcha-delivery\.com|datadome", re.I), "DataDome"),
+    (re.compile(r"cf-browser-verification|cf_chl_|__cf_chl|"
+                r"Attention Required!.{0,40}Cloudflare", re.I | re.S), "Cloudflare"),
+    (re.compile(r"_px[A-Za-z]*Captcha|perimeterx|px-captcha", re.I), "PerimeterX"),
+    (re.compile(r"Reference #[0-9a-f.]{8,}|akamai", re.I), "Akamai"),
+    (re.compile(r"incapsula|_Incapsula_Resource", re.I), "Imperva"),
+)
+
+
+class FetchBlocked(RuntimeError):
+    """
+    The server answered, and the answer was no.
+
+    Kept apart from requests' HTTPError because it is not the same kind of
+    event: nothing is broken, and no retry of the same shape will help. The
+    message carries the way out.
+    """
+
+    def __init__(self, url: str, status: int, wall: str | None = None,
+                 detail: str = ""):
+        self.url = url
+        self.status = status
+        self.wall = wall
+        super().__init__(describe_block(url, status, wall, detail))
+
+
+def describe_wall(body: str) -> str | None:
+    """Name the bot wall behind a refusal, if it left a recognisable trace."""
+    for pattern, name in BOT_WALLS:
+        if pattern.search(body):
+            return name
+    return None
+
+
+def _wrap(text: str, width: int = 74) -> str:
+    """Fold a sentence to terminal width; the caller indents what it gets."""
+    import textwrap
+    return "\n".join(textwrap.wrap(text, width)) or text
+
+
+def describe_block(url: str, status: int, wall: str | None = None,
+                   detail: str = "") -> str:
+    """The human half of a refusal: what happened, and what to do instead."""
+    host = urllib.parse.urlparse(url).netloc or url
+    reason = {
+        401: "asked for a login",
+        403: "refused the request",
+        429: "is rate-limiting this address",
+        451: "blocked the request for legal reasons",
+    }.get(status, "refused the request")
+
+    lines = [f"{host} {reason} (HTTP {status}"
+             + (f", {wall} bot protection" if wall else "") + ")."]
+
+    if status == 429:
+        lines += [
+            "",
+            _wrap("Too many requests too quickly. Wait a few minutes, and use "
+                  "-j 1 for large batches from one site."),
+        ]
+        return "\n".join(lines)
+
+    if wall:
+        lines += [
+            "",
+            _wrap(f"{wall} wants a browser that runs its JavaScript challenge, "
+                  "so no header this tool can send will get past it. The page "
+                  "itself is fine — only this request was turned away."),
+        ]
+    elif status == 401:
+        lines += ["", "The page is behind a login."]
+
+    lines += [
+        "",
+        "Two ways through, both from a browser where the page opens normally:",
+        "",
+        "  1. Save it — File > Save Page As > \"Web Page, Complete\" —",
+        "     and convert the file:",
+        "         w2p ~/Downloads/page.html",
+        "",
+        "  2. Or hand over your own session, if you have access to the page:",
+        "         w2p --cookies cookies.txt " + url,
+        "     (export cookies.txt for the site with a cookies.txt browser "
+        "extension)",
+    ]
+    if detail:
+        lines += ["", _wrap(detail)]
+    return "\n".join(lines)
+
+
+def load_cookies(source: str) -> "requests.cookies.RequestsCookieJar":
+    """
+    Read cookies from a file, so a request can carry the session you already
+    have in your browser.
+
+    Three shapes are accepted, because that is what the exporters produce:
+    Netscape cookies.txt (curl, wget, most browser extensions), the JSON array
+    the rest of the extensions produce, and a single `name=value; name=value`
+    header line pasted out of a browser's network tab.
+    """
+    path = os.path.abspath(os.path.expanduser(source))
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"No such cookie file: {path}")
+
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        text = fh.read().strip()
+
+    jar = requests.cookies.RequestsCookieJar()
+
+    if text.startswith(("[", "{")):
+        import json
+        try:
+            data = json.loads(text)
+        except ValueError as exc:
+            raise ValueError(f"{path}: not valid JSON ({exc})") from exc
+        items = data if isinstance(data, list) else data.get("cookies", [])
+        for item in items:
+            if not isinstance(item, dict) or "name" not in item:
+                continue
+            jar.set(item["name"], item.get("value", ""),
+                    domain=(item.get("domain") or "").lstrip("."),
+                    path=item.get("path") or "/")
+        if not len(jar):
+            raise ValueError(f"{path}: JSON held no cookies")
+        return jar
+
+    if "\n" not in text and "=" in text and "\t" not in text:
+        # A pasted Cookie: header line. It carries no domain, so it is sent to
+        # whatever host is being fetched — which is what pasting it means.
+        for part in text.replace("Cookie:", "", 1).split(";"):
+            name, _, value = part.strip().partition("=")
+            if name:
+                jar.set(name, value)
+        if not len(jar):
+            raise ValueError(f"{path}: no cookies found on that line")
+        return jar
+
+    import http.cookiejar
+    mozilla = http.cookiejar.MozillaCookieJar()
+    try:
+        mozilla.load(path, ignore_discard=True, ignore_expires=True)
+    except (http.cookiejar.LoadError, OSError) as exc:
+        raise ValueError(
+            f"{path}: not a cookies.txt file, a JSON cookie export, or a "
+            f"Cookie: header line ({exc})"
+        ) from exc
+    for cookie in mozilla:
+        # A session cookie is written with an expiry of 0, and the ones that
+        # matter here — the sign-in, the bot wall's pass — usually are one.
+        # Loading ignores expiry; *sending* does not, and would drop every one
+        # of them as expired half a century ago.
+        if not cookie.expires:
+            cookie.expires = None
+        jar.set_cookie(cookie)
+    if not len(jar):
+        raise ValueError(f"{path}: the cookie file is empty")
+    return jar
+
+
+def _as_jar(cookies):
+    """Accept a path or an already-built jar, since callers have both."""
+    if cookies is None or isinstance(cookies, str):
+        return load_cookies(cookies) if cookies else None
+    return cookies
+
+
+def fetch(url: str, timeout: int = 30, store=None, cookies=None) -> tuple[str, str]:
     """
     Download a page. Returns (html, final_url) after redirects.
 
     `store` is an optional cache.Cache. Converting one article to a second
     format, or trying it against another profile, should not re-download it.
+    `cookies` is a path to a cookie file or a jar from load_cookies(), which
+    lets a request carry the session you already have in a browser.
+
+    Raises FetchBlocked — with the way out in its message — when the server
+    turns the request away rather than failing.
     """
     if store is not None:
         hit = store.get_page(url)
         if hit is not None:
             return hit
 
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-    resp = requests.get(url, headers=headers, timeout=timeout)
+    jar = _as_jar(cookies)
+    session = requests.Session()
+    if jar is not None:
+        session.cookies.update(jar)
+
+    headers = dict(BROWSER_HEADERS)
+    resp = session.get(url, headers=headers, timeout=timeout)
+
+    # A plain 403 with nothing behind it is often hotlink protection, which
+    # wants to see that the request came from the site's own pages. That is
+    # one cheap retry, and it is the only one worth making: a wall that named
+    # itself has already told us no retry will do.
+    if resp.status_code == 403 and describe_wall(resp.text[:20000]) is None:
+        root = "{0.scheme}://{0.netloc}/".format(urllib.parse.urlparse(url))
+        retry_headers = dict(headers,
+                             Referer=root, **{"Sec-Fetch-Site": "same-origin"})
+        retry = session.get(url, headers=retry_headers, timeout=timeout)
+        if retry.ok:
+            resp = retry
+
+    if resp.status_code in (401, 403, 429, 451):
+        wall = describe_wall(resp.text[:20000])
+        detail = ""
+        if jar is not None:
+            detail = ("The cookies you supplied were sent and did not satisfy "
+                      "it — they may be stale, or for a different host.")
+        raise FetchBlocked(url, resp.status_code, wall, detail)
+
     resp.raise_for_status()
 
     # requests' default latin-1 guess for text/* mangles UTF-8 pages, so only
@@ -837,7 +1054,7 @@ def _download_image(url: str, asset_dir: str, session: requests.Session,
                 data = fh.read()
             ext = os.path.splitext(path)[1] or ".png"
         else:
-            resp = session.get(url, timeout=25, headers={"User-Agent": USER_AGENT})
+            resp = session.get(url, timeout=25)
             resp.raise_for_status()
             data = resp.content
             ext = os.path.splitext(urllib.parse.urlparse(url).path)[1]
@@ -865,13 +1082,30 @@ def _download_image(url: str, asset_dir: str, session: requests.Session,
 
 def _process_images(root: Tag, base_url: str, asset_dir: str,
                     text_width_mm: float, text_height_mm: float,
-                    warnings: list[str], store=None) -> int:
+                    warnings: list[str], store=None, cookies=None) -> int:
     """
     Download images, drop the junk, wrap survivors in <figure>, and — the part
     that matters for print — cap each image so it can never be taller than the
     page's text block. An image that fits on one page cannot be sliced in two.
     """
     session = requests.Session()
+    # Images get the same browser-shaped request as the page, plus the page as
+    # their referer: hotlink protection turns away an image request that looks
+    # like it came from nowhere, and that is a picture silently missing from
+    # the PDF rather than an error anyone sees.
+    session.headers.update({
+        "User-Agent": USER_AGENT,
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Sec-Fetch-Dest": "image",
+        "Sec-Fetch-Mode": "no-cors",
+        "Sec-Fetch-Site": "same-origin",
+    })
+    if base_url.startswith("http"):
+        session.headers["Referer"] = base_url
+    jar = _as_jar(cookies)
+    if jar is not None:
+        session.cookies.update(jar)
     kept = 0
     seen_src: set[str] = set()
 
@@ -1150,7 +1384,8 @@ def extract(html: str, base_url: str, asset_dir: str, *,
             text_width_mm: float = 160.0,
             text_height_mm: float = 195.0,
             download_images: bool = True,
-            store=None) -> Article:
+            store=None,
+            cookies=None) -> Article:
     """Parse raw HTML into a clean Article. `asset_dir` receives downloaded images."""
     soup = BeautifulSoup(html, "lxml")
     art = Article(source_url=base_url if base_url.startswith("http") else "")
@@ -1175,7 +1410,7 @@ def extract(html: str, base_url: str, asset_dir: str, *,
     if download_images:
         art.images = _process_images(
             root, base_url, asset_dir, text_width_mm, text_height_mm,
-            art.warnings, store,
+            art.warnings, store, cookies,
         )
     else:
         for img in root.find_all("img"):

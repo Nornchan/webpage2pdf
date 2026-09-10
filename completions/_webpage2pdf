@@ -57,6 +57,7 @@ _arguments -s -S \
   '--no-standfirst[omit the italic summary line under the title]' \
   '--keep-html[also save the cleaned HTML]:html file:_files -g "*.html"' \
   '--timeout[network timeout per request, seconds]:seconds:' \
+  '--cookies[send cookies from a file, for pages you read signed in]:cookie file:_files' \
   '--list-styles[show available stylesheets and exit]' \
   '--doctor[check the installation and report what is wrong]' \
   '(-q --quiet)'{-q,--quiet}'[only print errors]' \

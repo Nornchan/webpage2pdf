@@ -19,10 +19,11 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 try:
-    from webpage2pdf import cache, cli, converter, presets, profiles, writers
+    from webpage2pdf import cache, cli, converter, extractor, presets, profiles, writers
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(HERE), "src"))
-    from webpage2pdf import cache, cli, converter, presets, profiles, writers  # noqa: E402
+    from webpage2pdf import (cache, cli, converter, extractor,  # noqa: E402
+                            presets, profiles, writers)
 
 GREEN, RED, DIM, OFF = ("\033[32m", "\033[31m", "\033[2m", "\033[0m") \
     if sys.stdout.isatty() else ("", "", "", "")
@@ -46,6 +47,60 @@ results = []
 
 def check(name, condition, detail=""):
     results.append((name, bool(condition), detail))
+
+
+def _serve(tmp):
+    """
+    A local site that refuses requests the way real ones do.
+
+    Returns (base_url, shutdown). Nothing here touches the network: the point
+    is to exercise the refusal paths without depending on a site that happens
+    to be behind a bot wall this week.
+    """
+    import http.server
+    import threading
+
+    # What DataDome actually serves with its 403, trimmed to the part the
+    # detector matches on.
+    WALL = (b"<html><head><title>site</title></head><body>"
+            b"<p>Please enable JS and disable any ad blocker</p>"
+            b'<script src="https://ct.captcha-delivery.com/c.js"></script>'
+            b"</body></html>")
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def _send(self, status, body):
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            if self.path == "/datadome":
+                self._send(403, WALL)
+            elif self.path == "/needs-login":
+                self._send(401, b"<html><body>Sign in</body></html>")
+            elif self.path == "/hotlinked":
+                if self.headers.get("Referer"):
+                    self._send(200, b"<html><body><article><h1>Hotlinked</h1>"
+                                    b"<p>Allowed.</p></article></body></html>")
+                else:
+                    self._send(403, b"<html><body>Forbidden</body></html>")
+            elif self.path == "/private":
+                if "open-sesame" in (self.headers.get("Cookie") or ""):
+                    self._send(200, b"<html><body><article><h1>Members only</h1>"
+                                    b"<p>Signed in.</p></article></body></html>")
+                else:
+                    self._send(403, WALL)
+            else:
+                self._send(404, b"<html><body>Not found</body></html>")
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_port}", server.shutdown
 
 
 def main() -> int:
@@ -147,6 +202,86 @@ def main() -> int:
     refreshing = cache.Cache(directory=os.path.join(tmp, "cache"), refresh=True)
     check("--refresh treats held entries as stale",
           refreshing.get_page("http://x/") is None)
+
+    # ---- refused fetches and cookie files --------------------------------
+    #
+    # The failure this covers is a real one: a site behind a bot wall answers
+    # 403, and what the user used to see was "HTTPError: 403 Client Error",
+    # which names no cause and suggests no fix.
+    host, shutdown = _serve(tmp)
+
+    try:
+        extractor.fetch(f"{host}/datadome", store=None)
+        check("a bot wall raises FetchBlocked", False, "no error raised")
+    except extractor.FetchBlocked as exc:
+        check("a bot wall raises FetchBlocked", True)
+        check("the refusal names the wall", exc.wall == "DataDome", str(exc)[:60])
+        check("the refusal says what to do instead",
+              "--cookies" in str(exc) and "Save it" in str(exc))
+
+    try:
+        extractor.fetch(f"{host}/needs-login", store=None)
+        check("401 raises FetchBlocked too", False, "no error raised")
+    except extractor.FetchBlocked as exc:
+        check("401 raises FetchBlocked too", exc.status == 401)
+        check("an unbranded refusal names no wall", exc.wall is None)
+
+    # Hotlink protection: bare 403 to a request that arrives from nowhere,
+    # 200 once the site's own page is named as the referer.
+    html, _ = extractor.fetch(f"{host}/hotlinked", store=None)
+    check("a bare 403 is retried with a referer", "Hotlinked" in html)
+
+    # A 404 is a broken link, not a wall, and must not be dressed up as one.
+    try:
+        extractor.fetch(f"{host}/missing", store=None)
+        check("a 404 still raises HTTPError", False, "no error raised")
+    except extractor.FetchBlocked:
+        check("a 404 still raises HTTPError", False, "reported as a wall")
+    except Exception as exc:
+        check("a 404 still raises HTTPError", type(exc).__name__ == "HTTPError")
+
+    netscape = os.path.join(tmp, "cookies.txt")
+    with open(netscape, "w", encoding="utf-8") as fh:
+        fh.write("# Netscape HTTP Cookie File\n"
+                 "127.0.0.1\tFALSE\t/\tFALSE\t0\tsession\topen-sesame\n")
+    header_line = os.path.join(tmp, "cookie-header.txt")
+    with open(header_line, "w", encoding="utf-8") as fh:
+        fh.write("session=open-sesame; other=1")
+    as_json = os.path.join(tmp, "cookies.json")
+    with open(as_json, "w", encoding="utf-8") as fh:
+        fh.write('[{"name": "session", "value": "open-sesame", '
+                 '"domain": "127.0.0.1", "path": "/"}]')
+
+    for label, path in (("cookies.txt", netscape),
+                        ("a Cookie: header line", header_line),
+                        ("a JSON export", as_json)):
+        try:
+            body, _ = extractor.fetch(f"{host}/private", store=None, cookies=path)
+            check(f"cookies from {label} reach the server", "Members only" in body)
+        except Exception as exc:
+            check(f"cookies from {label} reach the server", False,
+                  f"{type(exc).__name__}: {exc}")
+
+    try:
+        extractor.load_cookies(os.path.join(tmp, "no-such-file.txt"))
+        check("a missing cookie file is refused clearly", False, "no error raised")
+    except FileNotFoundError:
+        check("a missing cookie file is refused clearly", True)
+
+    junk = os.path.join(tmp, "junk-cookies.txt")
+    with open(junk, "w", encoding="utf-8") as fh:
+        fh.write("this is not\na cookie file\n")
+    try:
+        extractor.load_cookies(junk)
+        check("an unparseable cookie file is refused clearly", False, "accepted")
+    except ValueError:
+        check("an unparseable cookie file is refused clearly", True)
+
+    check("--cookies reaches the settings",
+          cli.resolve_settings(cli.build_parser().parse_args(
+              ["--cookies", netscape, "x.html"]))["cookies"] == netscape)
+
+    shutdown()
 
     # ---- filenames and atomic claiming -----------------------------------
     check("filename takes the format's extension",

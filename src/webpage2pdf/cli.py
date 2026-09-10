@@ -122,6 +122,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="delete everything in the cache and exit")
     p.add_argument("--timeout", type=int, default=None, metavar="SEC",
                    help="network timeout per request (default: 30)")
+    p.add_argument("--cookies", metavar="FILE", default=None,
+                   help="send cookies from FILE (cookies.txt, a JSON cookie "
+                        "export, or a pasted Cookie: header line) so a page "
+                        "you can only read signed in converts too")
     p.add_argument("--list-styles", action="store_true",
                    help="show available stylesheets and exit")
     p.add_argument("--list-presets", action="store_true",
@@ -139,7 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def prefetch(sources: list[str], store, timeout: int, jobs: int,
-             report) -> None:
+             report, cookies=None) -> None:
     """
     Warm the cache for every URL at once, before rendering any of them.
 
@@ -157,7 +161,7 @@ def prefetch(sources: list[str], store, timeout: int, jobs: int,
 
     def warm(url: str) -> tuple[str, bool]:
         try:
-            extractor.fetch(url, timeout=timeout, store=store)
+            extractor.fetch(url, timeout=timeout, store=store, cookies=cookies)
             return url, True
         except Exception:
             # A failure here is not fatal: the render loop will retry the fetch
@@ -238,6 +242,8 @@ def resolve_settings(args: argparse.Namespace) -> dict:
                            else int(config.get("timeout", 30)))
     settings["open_after"] = (args.open_after if args.open_after is not None
                               else bool(config.get("open", False)))
+    settings["cookies"] = (args.cookies if args.cookies is not None
+                           else config.get("cookies") or None)
     if not config.get("cache", True):
         settings["no_cache"] = True
 
@@ -328,6 +334,16 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 1
 
+    # Resolved once, here: a typo in the path should stop the run before the
+    # first request, not once per source in the middle of a batch.
+    cookies = settings.get("cookies")
+    if cookies:
+        try:
+            cookies = extractor.load_cookies(cookies)
+        except (OSError, ValueError) as exc:
+            print(f"{RED}{exc}{OFF}", file=sys.stderr)
+            return 1
+
     store = cache_mod.Cache(
         enabled=not (args.no_cache or settings.get("no_cache")),
         refresh=args.refresh)
@@ -339,7 +355,8 @@ def main(argv: list[str] | None = None) -> int:
         if done == total:
             print("\r" + " " * 28 + "\r", end="", file=sys.stderr)
 
-    prefetch(sources, store, settings["timeout"], settings["jobs"], report)
+    prefetch(sources, store, settings["timeout"], settings["jobs"], report,
+             cookies=cookies)
 
     # `-` as a source means HTML on standard input. Stage it as a file, since
     # the converter works from paths and the extractor needs a base URL to
@@ -397,6 +414,7 @@ def main(argv: list[str] | None = None) -> int:
                 keep_html=args.keep_html,
                 timeout=settings["timeout"],
                 store=store,
+                cookies=cookies,
                 on_phase=on_phase,
             )
 
@@ -431,6 +449,17 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             print(f"\n{YELLOW}Interrupted.{OFF}", file=sys.stderr)
             return 130
+        except extractor.FetchBlocked as exc:
+            # This one arrives already written for a person: a bare
+            # "HTTPError: 403 Client Error" tells you nothing you can act on,
+            # and acting on it is the whole point.
+            failures += 1
+            if not args.quiet and not to_stdout and sys.stderr.isatty():
+                print("\r\033[K", end="", file=sys.stderr)
+            lines = str(exc).split("\n")
+            print(f"  {RED}✗ {lines[0]}{OFF}", file=sys.stderr)
+            for line in lines[1:]:
+                print(f"    {line}" if line else "", file=sys.stderr)
         except Exception as exc:
             failures += 1
             print(f"  {RED}✗ {type(exc).__name__}: {exc}{OFF}", file=sys.stderr)

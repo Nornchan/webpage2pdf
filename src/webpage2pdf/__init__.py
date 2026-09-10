@@ -14,5 +14,5 @@ Nothing outside `converter` should need to know a PDF engine exists.
 
 from __future__ import annotations
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 __all__ = ["__version__"]

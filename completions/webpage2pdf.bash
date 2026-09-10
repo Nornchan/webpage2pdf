@@ -7,7 +7,7 @@ _webpage2pdf() {
 
     opts="-h --help -V --version -o --output -d --dir --from-list --style
           --preset --links --toc --no-toc --no-numbering --no-images --no-url
-          --no-standfirst --keep-html --timeout --list-styles --list-presets
+          --no-standfirst --keep-html --timeout --cookies --list-styles --list-presets
           --open --doctor -q --quiet -p --profile -f --format --list-profiles
           -j --jobs --no-cache --refresh --cache-info --clear-cache --fix"
 
@@ -31,7 +31,7 @@ _webpage2pdf() {
         -d|--dir)
             COMPREPLY=( $(compgen -d -- "${cur}") )
             return 0 ;;
-        -o|--output|--keep-html|--from-list)
+        -o|--output|--keep-html|--from-list|--cookies)
             COMPREPLY=( $(compgen -f -- "${cur}") )
             return 0 ;;
         --timeout)

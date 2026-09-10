@@ -93,6 +93,7 @@ w2p --from-list links.txt -d reading/
 | `--keep-html FILE` | Also save the cleaned HTML, useful for checking what was removed |
 | `--list-profiles` | Show available profiles and exit |
 | `-j`, `--jobs N` | Fetch this many pages at once in a batch (default 4) |
+| `--cookies FILE` | Send cookies from a file — for pages you can only read signed in |
 | `--no-cache` / `--refresh` | Ignore the fetch cache, or re-fetch despite it |
 | `--cache-info` / `--clear-cache` | Inspect or empty the cache |
 | `--doctor --fix` | Attempt the repairs `--doctor` recommends |
@@ -291,30 +292,68 @@ rm -rf .venv
 | `Unknown style 'essay'` | Stylesheets did not install. Reinstall with `pip install -e .`. |
 | `Could not start on port 8765` | Port in use: `webpage2pdf-server --port 8766`. |
 | Output is nearly empty, with a warning | JavaScript-rendered or paywalled page. Save it from your browser and convert the file. |
+| `403 … DataDome bot protection` (or Cloudflare, PerimeterX, Akamai, Imperva) | The site refuses scripted requests. See *When a site refuses the request* below. |
 | Boxes instead of Chinese/Japanese text | Missing CJK fonts: `brew install --cask font-noto-serif-cjk-sc`. |
+
+### When a site refuses the request
+
+Some sites — most large news publishers among them — put a commercial bot wall
+in front of their articles. The wall answers with `403` and a JavaScript
+challenge instead of the page, and no combination of headers gets past it: it
+wants a browser that runs the challenge. The tool now says exactly that, names
+the wall, and stops rather than reporting a bare `HTTPError`.
+
+Two ways through, both starting in a browser where the page already opens:
+
+```bash
+# 1. Save the page (File > Save Page As > "Web Page, Complete") and convert it
+w2p ~/Downloads/article.html
+
+# 2. Or lend the tool the session you already have
+w2p --cookies cookies.txt https://example.com/article
+```
+
+`--cookies` reads three formats, which between them cover every exporter:
+Netscape `cookies.txt` (what curl, wget and the *cookies.txt* browser
+extensions write), the JSON array the other extensions write, and a single
+`name=value; name=value` line copied out of a browser's network tab. The
+cookies go to the page and to its images, so illustrations behind the same
+session arrive too. Nothing is uploaded anywhere: the file is read locally and
+sent only to the site it belongs to.
+
+That is also the answer for a `401` — a page behind a login you have.
+
+An unbranded `403` is more often hotlink protection, which wants the request to
+come from the site's own pages; that one is retried automatically with a
+referer before it is reported as a failure.
 
 ## Limits
 
 - **JavaScript-rendered pages** return little text, because the tool reads the HTML the server sends rather than running scripts. Save the page in your browser first (⌘S, "Web Page, Complete") and convert the file — the tool warns you when a result looks suspiciously thin.
-- **Paywalled articles** behave the same way. Save from a browser where you're logged in.
+- **Paywalled articles** behave the same way. Save from a browser where you're logged in, or pass that browser's cookies with `--cookies`.
+- **Bot walls** (DataDome, Cloudflare, PerimeterX, Akamai, Imperva) refuse a scripted request outright, and there is no header that changes their mind — the request has to carry a real browser session, or the page has to arrive as a saved file.
 - **Saved pages with local images:** paste the file *path* rather than dragging the file in. A dropped file arrives without its `_files` folder, so those images can't be found.
 
 ## Tests
 
 ```bash
 ./.venv/bin/python tests/test_robustness.py   # 16 checks, extraction
-./.venv/bin/python tests/test_pipeline.py     # 32 checks, formats and settings
+./.venv/bin/python tests/test_pipeline.py     # 45 checks, formats, settings, refusals
 ./.venv/bin/python tests/test_realworld.py    # 28 checks, real production markup
 ```
 
 `test_robustness.py` is sixteen checks covering unclosed tags, forty-deep div nesting, missing headings, unreachable images, nested tables, GB18030 encoding, mixed CJK/Arabic/Greek text, empty documents, and a hero image shipped once per responsive breakpoint beside a `print:hidden` recommendation rail. `tests/messy-page.html` is a realistic fixture — a page wrapped in nav, sidebar, ad slots, share buttons, a newsletter form, comments and a footer — for checking extraction by eye.
 
-`test_pipeline.py` is thirty-two checks over everything built on top: that each
+`test_pipeline.py` is forty-five checks over everything built on top: that each
 format produces a file of the right shape, that the EPUB is structurally valid,
 that Markdown keeps its tables, that standalone HTML has no external references,
 that presets produce sane text blocks, that flags beat profiles and profiles beat
-defaults, and that the cache is actually consulted. It isolates itself from your
-own `~/.config/webpage2pdf`.
+defaults, that the cache is actually consulted, and — against a local server
+that refuses requests the way real ones do — that a bot wall, a login and a
+rate limit are each reported as themselves rather than as a bare `HTTPError`,
+and that a cookie file in any of the three exported formats reaches the site.
+It isolates itself from your own `~/.config/webpage2pdf`, and touches no
+network.
 
 `test_realworld.py` runs extraction against unmodified, committed snapshots of
 real pages — a Wikipedia article, a Python docs page, a 1990s-style
