@@ -82,6 +82,32 @@ JUNK_ANCHOR_TEXT = re.compile(
     r"enlarge|expand|collapse|show|hide|top|back to top)\s*$", re.I
 )
 
+# Headings that introduce a recirculation rail rather than a section of the
+# article. Matched against heading text, not class names, because the sites
+# that need this most have no usable class names: NYT, like anything built on
+# Emotion or styled-components, ships hashed classes ("css-1qiat4j"), so every
+# token-matching pattern above is blind to its markup. The heading text is the
+# one part a publisher cannot obfuscate — it has to read well to a human.
+#
+# Matching the heading only marks a candidate; _is_link_rail then decides, so a
+# genuine prose section called "Related concepts" is never at risk.
+RECIRC_HEADING = re.compile(
+    r"^\s*("
+    r"related(\s+(content|stories|articles|coverage|reading|posts))?|"
+    r"more\s+(in|from|on|about|stories|coverage)\b.*|"
+    r"editors?.{0,3}\s*picks|"
+    r"you\s+(might|may)\s+(also\s+)?(like|enjoy)|"
+    r"recommended(\s+(for\s+you|reading|articles))?|"
+    r"most\s+(read|popular|viewed|shared)|"
+    r"trending(\s+now)?|"
+    r"(read|up)\s+next|read\s+more|"
+    r"around\s+the\s+web|from\s+our\s+partners|"
+    r"sponsored(\s+(content|stories|links))?|"
+    r"the\s+latest|latest\s+news|popular\s+in\s+the\s+community"
+    r")\s*[:.…]?\s*$",
+    re.I,
+)
+
 # Classes that mark a caption sitting outside its <figure>.
 CAPTION_HINT = re.compile(
     r"(^|[-_\s])(thumbcaption|wp-caption-text|caption|image-caption|media-caption|"
@@ -566,6 +592,94 @@ def _link_density(node: Tag, text_len: int) -> float:
     return min(link_len / text_len, 1.0)
 
 
+def _is_link_rail(nodes) -> bool:
+    """
+    True if a node — or a run of sibling nodes — is a rail of headline links
+    rather than prose.
+
+    This is the shape every "more from us" block shares regardless of who built
+    it: most of the text sits inside anchors, and none of it is a sentence. A
+    real section of an article is the opposite — its text is mostly outside
+    anchors, and it contains at least one paragraph long enough to be prose.
+
+    The sentence test is what keeps a genuine "Related reading" *discussion*
+    safe; only a block that is nothing but link text and photo credits fails
+    both halves.
+    """
+    if isinstance(nodes, Tag):
+        nodes = [nodes]
+    nodes = [n for n in nodes if isinstance(n, Tag) and not _gone(n)]
+    if not nodes:
+        return False
+
+    text_len = sum(len(n.get_text(" ", strip=True)) for n in nodes)
+    if text_len < 40:
+        # Too little to judge; a bare heading would pass any density test.
+        return False
+    link_len = sum(len(a.get_text(" ", strip=True))
+                   for n in nodes for a in n.find_all("a"))
+    if link_len / text_len < 0.5:
+        return False
+
+    for n in nodes:
+        for p in n.find_all("p"):
+            sentence = p.get_text(" ", strip=True)
+            if len(sentence) > 120 and re.search(r"[.!?]", sentence):
+                return False
+    return True
+
+
+def _strip_recirculation(root: Tag) -> None:
+    """
+    Remove "More in Europe" / "Editors' Picks" rails that carry no class name
+    worth matching.
+
+    A New York Times article rendered 23 pages, of which 17 were this: two
+    rails of headline links, each with a full-bleed photograph, promoted into
+    the table of contents as if they were chapters. Nothing in the token-based
+    sweeps could see them — every class on the page is an Emotion hash.
+
+    So this works from the heading text inward. For each heading that reads
+    like a rail, climb to the outermost ancestor that still holds nothing but
+    link text, and drop that; the climb stops at the first ancestor containing
+    real prose, which is what keeps the article itself safe. When a rail has no
+    wrapper to climb to, fall back to taking the heading and the run of
+    siblings beneath it, up to the next heading of the same or higher rank.
+    """
+    for h in root.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+        if _gone(h) or not RECIRC_HEADING.match(h.get_text(" ", strip=True)):
+            continue
+
+        # Climb: the wrapper case. NYT nests both rails under one container.
+        target = None
+        node = h.parent
+        while node is not None and node is not root and node.name not in ("body", "html"):
+            if not _is_link_rail(node):
+                break
+            target = node
+            node = node.parent
+        if target is not None:
+            target.decompose()
+            continue
+
+        # Fall back: the flat case, where the heading and its cards are simply
+        # siblings inside the article with no wrapper of their own.
+        rank = int(h.name[1])
+        run = []
+        sib = h.find_next_sibling()
+        while sib is not None:
+            if sib.name in ("h1", "h2", "h3", "h4", "h5", "h6") and int(sib.name[1]) <= rank:
+                break
+            run.append(sib)
+            sib = sib.find_next_sibling()
+        if not run:
+            continue
+
+        if _is_link_rail(run):
+            _kill(run)
+            h.decompose()
+
+
 def _score(node: Tag) -> float:
     """Rough heuristic: lots of prose, few links, semantic tag = probably the article."""
     text = node.get_text(" ", strip=True)
@@ -638,6 +752,7 @@ def _clean_content(root: Tag) -> None:
                 continue
             el.decompose()
 
+    _strip_recirculation(root)
     _strip_heading_furniture(root)
     _strip_footnote_markers(root)
     _strip_toc(root)

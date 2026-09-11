@@ -210,6 +210,8 @@ defaults — per-document choices belong on the command line.
 
 Anything the page itself marks hidden-when-printing — `print:hidden`, `d-print-none`, `hidden-print` and the rest — is taken at its word and dropped in the first sweep. Component-framework sites use it for exactly the things that don't belong on paper: share bars, and the "more from this site" rail that often sits *inside* `<main>` beside the article where the scorer would otherwise keep it.
 
+Sites that name nothing get a third signal: the heading. A site built on Emotion or styled-components ships hashed class names — `css-1qiat4j` — so there is no token for any of the above to match, and a "Related Content" rail of headline links sails through into the PDF. So a heading that reads like a rail ("More in Europe", "Editors' Picks", "You might also like") marks what follows as a candidate, and it is dropped only if it also *looks* like a rail: most of its text inside links, and not one sentence-length paragraph anywhere in it. A prose section that happens to be called "Related concepts" fails the second test and stays.
+
 Also handled: tables of contents, "edit" permalinks glued to headings, citation superscripts pointing at footnotes that aren't coming with us, and infobox sidebars.
 
 **3. Rebuilds the structure.** Headings are re-levelled so the hierarchy is coherent — if a site starts its sections at `h3`, everything slides up so the top level is `h2`. Div-wrapped prose becomes real paragraphs, `<b>`/`<i>` become `<strong>`/`<em>`, definition lists become bullets, every site class and inline style is stripped, and captions orphaned in sibling divs are pulled into the `<figure>` they describe.

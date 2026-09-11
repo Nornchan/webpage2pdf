@@ -1,9 +1,9 @@
 # Releasing, and the Homebrew tap
 
-## Status: done through v0.1.5
+## Status: done through v0.1.6
 
 - Source repo: [github.com/Nornchan/webpage2pdf](https://github.com/Nornchan/webpage2pdf), public
-- Current release: [v0.1.5](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.5); v0.1.0–v0.1.4 are still tagged for history
+- Current release: [v0.1.6](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.6); v0.1.0–v0.1.5 are still tagged for history
 - Tap: [github.com/Nornchan/homebrew-tap](https://github.com/Nornchan/homebrew-tap), public, formula tracks the latest release
 - Install, verified end to end from a genuinely fresh, untapped, untrusted
   machine state:
@@ -30,6 +30,48 @@ dependency pins" are the ones you'll actually repeat for a future release;
 ever needs to be recreated from scratch.
 
 ## Changelog
+
+### [v0.1.6](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.6) — 2026-09-11
+
+Removes the "related stories" rails that a component-framework site leaks into
+the article. A New York Times piece saved from the browser and converted came
+out **23 pages and 14.2 MB**, of which **17 pages were recirculation**: a
+`Related Content` block holding `More in Europe` and `Editors' Picks`, each a
+list of headline links with a full-bleed photograph, and each promoted into the
+table of contents as though it were a chapter of the article.
+
+- **Furniture removal no longer depends on the site naming its furniture.**
+  Every sweep in `extractor.py` matched on `id`/`class`/`role` tokens. NYT is
+  built on Emotion, so every class on the page is a hash — `css-2ypnkk`,
+  `css-16p55jy` — and the rails carried no token any pattern could see. The
+  one semantic attribute on the block, `data-testid="recirculation"`, is not
+  among the attributes `_matches` reads, and the `id` that is
+  (`recirculation-title`) sits on the heading alone, not the rail.
+- **So the heading is the signal.** `_strip_recirculation` matches heading
+  *text* against `RECIRC_HEADING` — "Related Content", "More in Europe",
+  "Editors' Picks", "You might also like", "Most read" and the rest. That only
+  nominates a candidate. `_is_link_rail` then decides on shape: at least half
+  the text inside anchors, and no paragraph over 120 characters carrying
+  sentence punctuation. A genuine prose section titled "Related concepts"
+  fails the shape test and survives untouched — as does a Wikipedia "See also"
+  list, whose heading the pattern deliberately does not name.
+- **Two layouts, one pass.** From a matching heading it climbs to the
+  outermost ancestor that still holds nothing but link text, which is what
+  removes NYT's wrapper and both nested rails in one go; the climb stops at
+  the first ancestor containing real prose, which is what keeps the article
+  safe. Where a rail has no wrapper, it falls back to the heading plus the run
+  of siblings under it, up to the next heading of the same or higher rank.
+
+Guarded by three new synthetic cases in `test_robustness.py` — a hashed-class
+rail, a flat rail with no wrapper, and a prose section whose heading matches
+but whose shape does not — each also asserting the article itself is intact.
+Full suite 92 checks (19 + 45 + 28), all green.
+
+Verified against the actual saved page, not only the reproduction: it now
+extracts 1,728 words across the article's own 4 sections and renders **6
+pages**, where before the fix the same file gave 2,005 words across 7 sections
+and 23 pages. All four committed real-world fixtures extract byte-identically
+to v0.1.5 — same word counts, same section counts — so nothing else moved.
 
 ### [v0.1.5](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.5) — 2026-09-10
 

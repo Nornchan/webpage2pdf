@@ -215,6 +215,59 @@ def run() -> int:
         failed += 1
         print(f"  FAIL  {'dedup hero + print:hidden rail':32} {type(exc).__name__}: {exc}")
 
+    # Recirculation rails on a page with no usable class names. NYT ships
+    # Emotion hashes ("css-1qiat4j"), so every token-matching sweep is blind to
+    # it: a real article came out 23 pages, 17 of them "More in Europe" and
+    # "Editors' Picks" rails promoted into the table of contents as chapters.
+    # The rails must go; the article, and a prose section whose heading happens
+    # to match, must both survive untouched.
+    rail_cases = [
+        ("hashed-class recirc rail", True, "More in Europe",
+         "<section class='css-1qiat4j'><h2>Related Content</h2>"
+         "<section class='css-8atqhb'><h3>More in Europe</h3><ul>"
+         + "".join(f"<li><a href='https://www.nytimes.com/x{i}'>"
+                   f"<img src='https://static01.nyt.com/img{i}.jpg' alt=''>"
+                   f"<h3>A European headline of ordinary length, number {i}</h3></a>"
+                   f"<p class='css-1c0pn3'>Agence France-Presse — Getty Images</p></li>"
+                   for i in range(6))
+         + "</ul></section></section>"),
+        ("flat rail with no wrapper", True, "You might also like",
+         "<h2>You might also like</h2>"
+         + "".join(f"<div><a href='/x{i}'>Another headline about European politics, "
+                   f"number {i}</a><p>Getty Images</p></div>" for i in range(6))),
+        ("prose section that merely matches", False, "Related concepts",
+         "<h2>Related concepts</h2>"
+         "<p>Manipulation differs from persuasion in that it bypasses a person's "
+         "rational agency, and that distinction matters for how we judge an appeal.</p>"
+         "<p>Coercion, by contrast, removes the option outright rather than merely "
+         "clouding the reasoning that leads someone toward a particular choice.</p>"),
+    ]
+    body = "".join(f"<p>Body paragraph {i} carrying enough genuine sentences to read "
+                   f"as real article prose rather than a caption.</p>" for i in range(12))
+    for label, should_vanish, probe, block in rail_cases:
+        try:
+            html = ("<html lang='en'><head><title>Rails</title></head><body><main>"
+                    f"<article><h1>The article</h1>{body}{block}</article>"
+                    "</main></body></html>")
+            path = os.path.join(tmp, f"rail-{abs(hash(label))}.html")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(html)
+            art = extractor.extract(html, "file://" + path, tempfile.mkdtemp(),
+                                    download_images=False)
+            gone = probe.lower() not in art.body_html.lower()
+            kept_article = "Body paragraph 11" in art.body_html
+            if gone == should_vanish and kept_article:
+                passed += 1
+                print(f"  PASS  {label:32} "
+                      f"{'rail removed' if should_vanish else 'prose kept'}, article intact")
+            else:
+                failed += 1
+                print(f"  FAIL  {label:32} gone={gone} expected={should_vanish} "
+                      f"article_intact={kept_article}")
+        except Exception as exc:
+            failed += 1
+            print(f"  FAIL  {label:32} {type(exc).__name__}: {exc}")
+
     print(f"\n  {passed} passed, {failed} failed")
     return 1 if failed else 0
 
