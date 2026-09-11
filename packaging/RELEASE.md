@@ -73,6 +73,21 @@ pages**, where before the fix the same file gave 2,005 words across 7 sections
 and 23 pages. All four committed real-world fixtures extract byte-identically
 to v0.1.5 — same word counts, same section counts — so nothing else moved.
 
+Verified end to end: real upgrade from an actual 0.1.5 install
+(`nornchan/tap/webpage2pdf 0.1.5 -> 0.1.6`, built from source in 2m03s);
+`brew test` and `brew audit --strict --online` both exit 0, no findings; the
+installed binary renders the NYT file at 6 pages and still converts an
+unwalled page unchanged (a live Wikipedia article, 59 pages / 40 images).
+The formula's `test do` block gained a matching assertion, so a future
+packaging change that regresses this fails `brew test` — every one of its
+four new assertions was checked against the working tool before committing.
+
+Note for anyone reproducing the original 23-page PDF: a browser's "Web Page,
+Complete" save writes a companion `<name>_files/` folder next to the HTML
+holding every image. Convert the HTML without that folder beside it and the
+PDF comes out correct but illustration-free — which is why the runs above
+report 0 images.
+
 ### [v0.1.5](https://github.com/Nornchan/webpage2pdf/releases/tag/v0.1.5) — 2026-09-10
 
 Fixes what a site's bot wall used to look like from the command line. A New
