@@ -6,8 +6,8 @@ class Webpage2pdf < Formula
 
   desc "Turn web pages into clean A4 PDFs that read like typeset essays"
   homepage "https://github.com/Nornchan/webpage2pdf"
-  url "https://github.com/Nornchan/webpage2pdf/archive/refs/tags/v0.1.5.tar.gz"
-  sha256 "9f8130f29350b9b1b5d4449057db813d0a5ef151400067ac8a05ea9e444316af"
+  url "https://github.com/Nornchan/webpage2pdf/archive/refs/tags/v0.1.6.tar.gz"
+  sha256 "323294438abb573ef11d8d9014e91390b56dfffa70352f33b8da08d1fe2dbb37"
   license "MIT"
   head "https://github.com/Nornchan/webpage2pdf.git", branch: "main"
 
@@ -268,6 +268,41 @@ class Webpage2pdf < Formula
     r = (testpath/"r.html").read
     assert_match "Real article prose", r
     refute_match "recommendation rail", r
+
+    # A rail on a site that names nothing: hashed Emotion classes, so no token
+    # for any sweep to match, and it is the heading text plus the shape of the
+    # block that identifies it (v0.1.6, NYT support). The prose section below
+    # it matches the same heading pattern by name and must survive on shape.
+    (testpath/"hashed.html").write <<~HTML
+      <!DOCTYPE html>
+      <html lang="en"><head><meta charset="utf-8">
+      <title>Hashed</title></head><body><main>
+        <article>
+          <h1>Hashed</h1>
+          #{"<p>Real article prose with commas, clauses and enough length to " \
+            "read as a genuine paragraph rather than a caption.</p>" * 12}
+          <section class="css-2ypnkk">
+            <h2 class="css-1dv1kvn">Related Content</h2>
+            <section class="css-16p55jy"><h3>More in Europe</h3><ul>
+              #{"<li><a href='/x'>A European headline of ordinary length</a>" \
+                "<p class='css-1c0pn3'>Getty Images</p></li>" * 6}
+            </ul></section>
+          </section>
+          <h2>Related concepts</h2>
+          <p>Manipulation differs from persuasion in that it bypasses a
+          person's rational agency, and that distinction decides how we
+          judge the ethics of an appeal made to someone.</p>
+        </article>
+      </main></body></html>
+    HTML
+
+    system bin/"webpage2pdf", testpath/"hashed.html", "--no-images",
+           "-o", testpath/"h.pdf", "--keep-html", testpath/"h.html", "--quiet"
+    h = (testpath/"h.html").read
+    assert_match "Real article prose", h
+    assert_match "Related concepts", h
+    refute_match "More in Europe", h
+    refute_match "European headline", h
     refute_match "More from us", r
 
     assert_match version.to_s, shell_output("#{bin}/w2p --version")
